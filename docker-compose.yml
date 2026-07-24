@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: ministry-training-feedback-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ministry_feedback
+      POSTGRES_USER: ministry_admin
+      POSTGRES_PASSWORD: ministry_local_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - ministry_feedback_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ministry_admin -d ministry_feedback"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  ministry_feedback_postgres:

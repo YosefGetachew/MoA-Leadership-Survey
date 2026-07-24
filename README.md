@@ -1,4 +1,4 @@
-# vinext-starter
+# Ministry Training Feedback System
 
 A clean full-stack starter running on
 [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
@@ -8,13 +8,37 @@ Drizzle support.
 
 - Node.js `>=22.13.0`
 
-## Quick Start
+## Run with the default local D1 database
 
 ```bash
 npm install
 npm run dev
 npm run build
 ```
+
+## Run with PostgreSQL
+
+Start the included PostgreSQL service:
+
+```bash
+docker compose up -d postgres
+```
+
+Add this line to `.env.local`:
+
+```env
+DATABASE_URL=postgresql://ministry_admin:ministry_local_password@localhost:5432/ministry_feedback
+```
+
+Then restart the application:
+
+```bash
+npm run dev
+```
+
+The required PostgreSQL tables and indexes are created automatically. Remove
+`DATABASE_URL` and restart the app to use D1 again. PostgreSQL and D1 keep
+separate data; existing records are not copied automatically.
 
 This starter does not use `wrangler.jsonc`.
 
