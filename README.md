@@ -21,7 +21,7 @@ Change `MINISTRY_ADMIN_PASSWORD` and `MINISTRY_ADMIN_SESSION` before using the s
 
 ## Questionnaire coverage
 
-The form first presents seven overall reform statements, followed by 23 high-level, 28 middle-level, or 18 lower-level leadership statements. English and Amharic appear together in a SurveyMonkey-style rating matrix. Leadership positions and sectors/institutions are filtered by the selected leadership level. Administrators register, edit, activate, and deactivate sector options for each level. All displayed statements and the evaluated sector are required; N/A is a valid response. The protected administration page also provides response counts, average scores, N/A rate, item analysis, recent submissions, optional evaluator details, and CSV export.
+The form first presents seven overall reform statements, followed by 23 high-level, 28 middle-level, or 18 lower-level leadership statements. English and Amharic appear together in a SurveyMonkey-style rating matrix. Leadership positions are filtered by the selected leadership level, and the sector/institution dropdown stays disabled until a specific leadership position is chosen, then shows only the sectors or institutions registered for that exact position (e.g. State Minister sectors for "State Minister", Lead Executive offices for "Lead Executive"). Administrators register, edit, activate, and deactivate sector options for each leadership level and position combination. All displayed statements and the evaluated sector are required; N/A is a valid response. The protected administration page also provides response counts, average scores, N/A rate, item analysis, recent submissions, optional evaluator details, and CSV export.
 
 ## Production
 

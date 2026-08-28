@@ -36,6 +36,7 @@ async function ensureSchema() {
       name_en text NOT NULL,
       name_am text,
       leadership_level text NOT NULL DEFAULT 'high_level' CHECK (leadership_level IN ('high_level','middle_level','lower_level')),
+      leadership_position text,
       active boolean NOT NULL DEFAULT true,
       sort_order integer NOT NULL DEFAULT 100,
       created_by text,
@@ -54,8 +55,11 @@ async function ensureSchema() {
           CHECK (leadership_level IN ('high_level','middle_level','lower_level'));
       END IF;
     END $$;
+    ALTER TABLE survey_sectors ADD COLUMN IF NOT EXISTS leadership_position text;
     CREATE INDEX IF NOT EXISTS survey_sectors_level_active_order_idx
       ON survey_sectors(leadership_level,active,sort_order,name_en);
+    CREATE INDEX IF NOT EXISTS survey_sectors_position_active_order_idx
+      ON survey_sectors(leadership_level,leadership_position,active,sort_order,name_en);
 
     CREATE TABLE IF NOT EXISTS leadership_assessment_responses (
       id bigserial PRIMARY KEY,

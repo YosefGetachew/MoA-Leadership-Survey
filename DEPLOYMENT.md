@@ -156,7 +156,7 @@ Then verify in a browser:
 2. Confirm the TLS padlock has no certificate warning.
 3. Scan the QR code at the top. It should open the same production URL automatically.
 4. Switch between English and Amharic.
-5. Confirm leadership positions and sectors change with the selected level.
+5. Confirm leadership positions change with the selected level, and that the sector/institution list changes with the selected leadership position.
 6. Submit one controlled test response.
 7. Sign in as administrator and confirm the response appears.
 8. Test CSV export.
