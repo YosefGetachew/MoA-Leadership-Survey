@@ -1,1 +1,0 @@
-ALTER TABLE `feedback` ADD `trainer_rating` integer DEFAULT 3 NOT NULL;

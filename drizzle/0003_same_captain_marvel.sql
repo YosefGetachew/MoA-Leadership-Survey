@@ -1,1 +1,0 @@
-CREATE UNIQUE INDEX `trainings_title_date_idx` ON `trainings` (`title`,`training_date`);
