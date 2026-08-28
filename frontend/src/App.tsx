@@ -17,7 +17,7 @@ interface SurveySection {
 
 interface MatrixQuestion { code: string; text: string; textAm?: string; dimension?: string }
 interface SectorOption { value: string; label: string; labelAm?: string | null }
-interface AdminSector { id: number; code: string; nameEn: string; nameAm?: string | null; leadershipLevel: LeadershipLevel; active: boolean; sortOrder: number; createdAt?: string }
+interface AdminSector { id: number; code: string; nameEn: string; nameAm?: string | null; leadershipLevel: LeadershipLevel; leadershipPosition: string; active: boolean; sortOrder: number; createdAt?: string }
 
 interface AdminSession {
   authorized: boolean;
@@ -62,15 +62,12 @@ const leadershipPositions: Record<LeadershipLevel, Array<{ value: string; label:
   high_level: [
     { value: "minister", label: "Minister", labelAm: "ሚኒስትር" },
     { value: "state_minister", label: "State Minister", labelAm: "ሚኒስትር ዴኤታ" },
+    { value: "advisor_to_minister", label: "Advisor to the Minister", labelAm: "የሚኒስትሩ አማካሪ" },
     { value: "director_general", label: "Director General", labelAm: "ዋና ዳይሬክተር" },
-    { value: "commissioner", label: "Commissioner", labelAm: "ኮሚሽነር" },
-    { value: "bureau_head", label: "Bureau Head", labelAm: "የቢሮ ኃላፊ" },
-    { value: "equivalent_senior_executive", label: "Equivalent Senior Executive", labelAm: "ተመሳሳይ ከፍተኛ ሥራ አስፈጻሚ" },
   ],
   middle_level: [
     { value: "lead_executive", label: "Lead Executive", labelAm: "መሪ ሥራ አስፈጻሚ" },
     { value: "executive", label: "Executive", labelAm: "ሥራ አስፈጻሚ" },
-    { value: "advisor", label: "Advisor", labelAm: "አማካሪ" },
     { value: "project_coordinator", label: "Project Coordinator", labelAm: "የፕሮጀክት አስተባባሪ" },
   ],
   lower_level: [
@@ -92,8 +89,8 @@ const englishCopy = {
   overallSection: "Overall institutional reform assessment", overallIntro: "First, rate these general statements about the institutional reform.",
   leadershipSection: "Leadership assessment",
   evaluatedSector: "Sector / institution being evaluated", evaluatedSectorPlaceholder: "For example: Crop Development Sector or Regional Agriculture Bureau",
-  sectorHelp: "Only sectors or institutions registered for the selected leadership level are shown.", sectorRequired: "Select the sector or institution being evaluated.",
-  noSectors: "No active sectors are registered for this leadership level. Please contact the survey administrator.",
+  sectorHelp: "Only Ministry units linked to the selected leadership position are shown.", sectorRequired: "Select the sector or institution being evaluated.",
+  noSectors: "No active Ministry unit is registered for this leadership position. Please contact the survey administrator.",
   evaluatorInfo: "Evaluator information", optional: "Optional", evaluatorPrivacy: "This section is optional. Leave it blank to submit your response anonymously.",
   evaluatorName: "Full name", evaluatorOrganization: "Organization / unit", evaluatorPosition: "Position or job title", evaluatorContact: "Email or phone",
   begin: "Begin assessment", page: "Page", of: "of", complete: "complete",
@@ -209,12 +206,13 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
   }, []);
 
   useEffect(() => {
-    if (!level) {
+    if (!level || !evaluatedLeadershipPosition) {
       setSectors([]);
+      setEvaluatedSector("");
       return;
     }
     let cancelled = false;
-    api<{ sectors: SectorOption[] }>(`/api/survey/sectors?leadershipLevel=${encodeURIComponent(level)}`)
+    api<{ sectors: SectorOption[] }>(`/api/survey/sectors?leadershipLevel=${encodeURIComponent(level)}&leadershipPosition=${encodeURIComponent(evaluatedLeadershipPosition)}`)
       .then((data) => {
         if (cancelled) return;
         setSectors(data.sectors);
@@ -222,7 +220,7 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
       })
       .catch(() => { if (!cancelled) setError(language === "am" ? amharicCopy.unavailable : englishCopy.unavailable); });
     return () => { cancelled = true; };
-  }, [level]);
+  }, [level, evaluatedLeadershipPosition]);
 
   useEffect(() => {
     localStorage.setItem("moa-survey-language", language);
@@ -391,14 +389,14 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
               {level && (
                 <label className="survey-field required-field linked-field" htmlFor="evaluated-position">
                   <span>{t.evaluatedPosition} <b>*</b></span>
-                  <select id="evaluated-position" value={evaluatedLeadershipPosition} onChange={(event) => { setEvaluatedLeadershipPosition(event.target.value); setError(""); }} required>
+                  <select id="evaluated-position" value={evaluatedLeadershipPosition} onChange={(event) => { setEvaluatedLeadershipPosition(event.target.value); setEvaluatedSector(""); setSectors([]); setError(""); }} required>
                     <option value="">{t.selectPosition}</option>
                     {leadershipPositions[level].map((position) => <option value={position.value} key={position.value}>{language === "am" ? position.labelAm : position.label}</option>)}
                   </select>
                   <small>{t.positionHelp}</small>
                 </label>
               )}
-              {level && (
+              {level && evaluatedLeadershipPosition && (
                 <label className="survey-field required-field linked-field" htmlFor="evaluated-sector">
                   <span>{t.evaluatedSector} <b>*</b></span>
                   <select
@@ -473,7 +471,7 @@ function Admin({ onExit }: { onExit: () => void }) {
   const [loading, setLoading] = useState(true);
   const [results, setResults] = useState<SurveyResults | null>(null);
   const [adminSectors, setAdminSectors] = useState<AdminSector[]>([]);
-  const [sectorForm, setSectorForm] = useState<{ id: number | null; nameEn: string; nameAm: string; leadershipLevel: LeadershipLevel; sortOrder: number }>({ id: null, nameEn: "", nameAm: "", leadershipLevel: "high_level", sortOrder: 100 });
+  const [sectorForm, setSectorForm] = useState<{ id: number | null; nameEn: string; nameAm: string; leadershipLevel: LeadershipLevel; leadershipPosition: string; sortOrder: number }>({ id: null, nameEn: "", nameAm: "", leadershipLevel: "high_level", leadershipPosition: "minister", sortOrder: 100 });
   const [savingSector, setSavingSector] = useState(false);
   const [sectorRegistryOpen, setSectorRegistryOpen] = useState(false);
   const [sectorLevelFilter, setSectorLevelFilter] = useState<LeadershipLevel | "all">("all");
@@ -520,7 +518,7 @@ function Admin({ onExit }: { onExit: () => void }) {
   }
 
   function resetSectorForm() {
-    setSectorForm({ id: null, nameEn: "", nameAm: "", leadershipLevel: "high_level", sortOrder: 100 });
+    setSectorForm({ id: null, nameEn: "", nameAm: "", leadershipLevel: "high_level", leadershipPosition: "minister", sortOrder: 100 });
   }
 
   async function saveSector(event: FormEvent) {
@@ -559,7 +557,7 @@ function Admin({ onExit }: { onExit: () => void }) {
           <div className="brand-mark large">MoA</div>
           <p className="eyebrow">Restricted access</p>
           <h1>Survey administration</h1>
-          <p>Sign in to manage level-linked sectors and review the final questionnaire responses.</p>
+          <p>Sign in to manage position-linked sectors and institutions and review the final questionnaire responses.</p>
           <label>Username<input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required /></label>
           <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>
           {error && <div className="error-banner" role="alert">{error}</div>}
@@ -576,7 +574,7 @@ function Admin({ onExit }: { onExit: () => void }) {
         {error && <div className="error-banner">{error}</div>}
         {session.role === "admin" && (
           <section className={`admin-panel sector-management ${sectorRegistryOpen ? "open" : "collapsed"}`}>
-            <div className="panel-heading registry-heading"><div><h2>Sector and institution registry</h2><p>{adminSectors.length} registered entries · organized by leadership level</p></div><button className="secondary-button registry-toggle" type="button" aria-expanded={sectorRegistryOpen} onClick={() => setSectorRegistryOpen((current) => !current)}>{sectorRegistryOpen ? "Hide registry" : "Manage registry"}</button></div>
+            <div className="panel-heading registry-heading"><div><h2>Sector and institution registry</h2><p>{adminSectors.length} registered entries · linked to leadership level and position</p></div><button className="secondary-button registry-toggle" type="button" aria-expanded={sectorRegistryOpen} onClick={() => setSectorRegistryOpen((current) => !current)}>{sectorRegistryOpen ? "Hide registry" : "Manage registry"}</button></div>
             {sectorRegistryOpen && (
               <div className="registry-container">
                 <div className="sector-level-tabs" role="group" aria-label="Filter registry by leadership level">
@@ -584,13 +582,14 @@ function Admin({ onExit }: { onExit: () => void }) {
                   {sections.map((item) => <button className={sectorLevelFilter === item.level ? "active" : ""} type="button" key={item.level} onClick={() => setSectorLevelFilter(item.level)}>{item.title} <span>{adminSectors.filter((sector) => sector.leadershipLevel === item.level).length}</span></button>)}
                 </div>
                 <form className="sector-admin-form" onSubmit={saveSector}>
-                  <label>Leadership level<select value={sectorForm.leadershipLevel} onChange={(event) => setSectorForm((current) => ({ ...current, leadershipLevel: event.target.value as LeadershipLevel }))}>{sections.map((item) => <option value={item.level} key={item.level}>{item.title}</option>)}</select></label>
+                  <label>Leadership level<select value={sectorForm.leadershipLevel} onChange={(event) => { const leadershipLevel = event.target.value as LeadershipLevel; setSectorForm((current) => ({ ...current, leadershipLevel, leadershipPosition: leadershipPositions[leadershipLevel][0].value })); }}>{sections.map((item) => <option value={item.level} key={item.level}>{item.title}</option>)}</select></label>
+                  <label>Leadership position<select value={sectorForm.leadershipPosition} onChange={(event) => setSectorForm((current) => ({ ...current, leadershipPosition: event.target.value }))}>{leadershipPositions[sectorForm.leadershipLevel].map((position) => <option value={position.value} key={position.value}>{position.label}</option>)}</select></label>
                   <label>English name<input value={sectorForm.nameEn} onChange={(event) => setSectorForm((current) => ({ ...current, nameEn: event.target.value }))} maxLength={160} required /></label>
                   <label>Amharic name<input value={sectorForm.nameAm} onChange={(event) => setSectorForm((current) => ({ ...current, nameAm: event.target.value }))} maxLength={160} /></label>
                   <label>Display order<input type="number" min="0" max="9999" value={sectorForm.sortOrder} onChange={(event) => setSectorForm((current) => ({ ...current, sortOrder: Number(event.target.value) }))} /></label>
                   <div className="sector-form-actions"><button className="primary-button" type="submit" disabled={savingSector}>{savingSector ? "Saving…" : sectorForm.id ? "Update entry" : "Register entry"}</button>{sectorForm.id && <button className="secondary-button" type="button" onClick={resetSectorForm}>Cancel</button>}</div>
                 </form>
-                <div className="registry-table-container"><div className="table-wrap"><table><thead><tr><th>Leadership level</th><th>English</th><th>Amharic</th><th>Order</th><th>Status</th><th>Actions</th></tr></thead><tbody>{filteredAdminSectors.map((sector) => <tr key={sector.id}><td>{sections.find((item) => item.level === sector.leadershipLevel)?.title}</td><td><strong>{sector.nameEn}</strong></td><td>{sector.nameAm || "—"}</td><td>{sector.sortOrder}</td><td><span className={`status-pill ${sector.active ? "active" : "inactive"}`}>{sector.active ? "Active" : "Inactive"}</span></td><td><div className="row-actions"><button type="button" onClick={() => { setSectorLevelFilter(sector.leadershipLevel); setSectorForm({ id: sector.id, nameEn: sector.nameEn, nameAm: sector.nameAm || "", leadershipLevel: sector.leadershipLevel, sortOrder: sector.sortOrder }); }}>Edit</button><button type="button" onClick={() => toggleSector(sector.id)}>{sector.active ? "Deactivate" : "Activate"}</button></div></td></tr>)}</tbody></table></div></div>
+                <div className="registry-table-container"><div className="table-wrap"><table><thead><tr><th>Leadership level</th><th>Leadership position</th><th>English</th><th>Amharic</th><th>Order</th><th>Status</th><th>Actions</th></tr></thead><tbody>{filteredAdminSectors.map((sector) => <tr key={sector.id}><td>{sections.find((item) => item.level === sector.leadershipLevel)?.title}</td><td>{formatLeadershipPosition(sector.leadershipPosition)}</td><td><strong>{sector.nameEn}</strong></td><td>{sector.nameAm || "—"}</td><td>{sector.sortOrder}</td><td><span className={`status-pill ${sector.active ? "active" : "inactive"}`}>{sector.active ? "Active" : "Inactive"}</span></td><td><div className="row-actions"><button type="button" onClick={() => { setSectorLevelFilter(sector.leadershipLevel); setSectorForm({ id: sector.id, nameEn: sector.nameEn, nameAm: sector.nameAm || "", leadershipLevel: sector.leadershipLevel, leadershipPosition: sector.leadershipPosition, sortOrder: sector.sortOrder }); }}>Edit</button><button type="button" onClick={() => toggleSector(sector.id)}>{sector.active ? "Deactivate" : "Activate"}</button></div></td></tr>)}</tbody></table></div></div>
               </div>
             )}
           </section>

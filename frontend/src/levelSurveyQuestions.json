@@ -2,7 +2,7 @@
   {
     "level": "high_level",
     "title": "High-Level Leadership",
-    "audience": "Ministers, state ministers, directors general, commissioners, bureau heads and equivalent senior executives",
+    "audience": "Ministers, state ministers, advisors to the minister, and directors general",
     "questions": [
       {"code":"HL01","text":"He/She set and communicates a clear vision for the organization/units."},
       {"code":"HL02","text":"He/She provides clear strategic direction."},

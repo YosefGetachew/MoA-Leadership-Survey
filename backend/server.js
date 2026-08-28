@@ -26,8 +26,8 @@ const OVERALL_QUESTIONS = [
 ];
 const OVERALL_QUESTION_CODES = OVERALL_QUESTIONS.map(([code]) => code);
 const LEADERSHIP_POSITIONS = {
-  high_level: new Set(["minister", "state_minister", "director_general", "commissioner", "bureau_head", "equivalent_senior_executive"]),
-  middle_level: new Set(["lead_executive", "executive", "advisor", "project_coordinator"]),
+  high_level: new Set(["minister", "state_minister", "advisor_to_minister", "director_general"]),
+  middle_level: new Set(["lead_executive", "executive", "project_coordinator"]),
   lower_level: new Set(["team_leader", "desk_head"]),
 };
 const sectionsByLevel = new Map(surveySections.map((section) => [section.level, section]));
@@ -68,8 +68,10 @@ app.get("/api/health", async (_req, res, next) => {
 app.get("/api/survey/sectors", async (req, res, next) => {
   try {
     const leadershipLevel = clean(req.query.leadershipLevel, 30);
+    const leadershipPosition = clean(req.query.leadershipPosition, 80);
     if (!sectionsByLevel.has(leadershipLevel)) return res.status(400).json({ error: "Select a valid leadership level before loading sectors." });
-    const sectors = await query(`SELECT code AS value,name_en AS label,name_am AS "labelAm" FROM survey_sectors WHERE active=true AND leadership_level=$1 ORDER BY sort_order,name_en`, [leadershipLevel]);
+    if (!LEADERSHIP_POSITIONS[leadershipLevel]?.has(leadershipPosition)) return res.status(400).json({ error: "Select a leadership position before loading sectors or institutions." });
+    const sectors = await query(`SELECT code AS value,name_en AS label,name_am AS "labelAm" FROM survey_sectors WHERE active=true AND leadership_level=$1 AND leadership_position=$2 ORDER BY sort_order,name_en`, [leadershipLevel, leadershipPosition]);
     res.json({ sectors });
   } catch (error) { next(error); }
 });
@@ -100,7 +102,7 @@ app.post("/api/survey/responses", async (req, res, next) => {
     const evaluatedLeadershipPosition = clean(req.body.evaluatedLeadershipPosition, 80);
     if (!LEADERSHIP_POSITIONS[leadershipLevel]?.has(evaluatedLeadershipPosition)) return res.status(400).json({ error: "Select a leadership position that matches the leadership level." });
     const selectedSector = clean(req.body.evaluatedSector, 80);
-    const registeredSector = (await query(`SELECT code FROM survey_sectors WHERE code=$1 AND leadership_level=$2 AND active=true LIMIT 1`, [selectedSector, leadershipLevel]))[0];
+    const registeredSector = (await query(`SELECT code FROM survey_sectors WHERE code=$1 AND leadership_level=$2 AND leadership_position=$3 AND active=true LIMIT 1`, [selectedSector, leadershipLevel, evaluatedLeadershipPosition]))[0];
     if (!registeredSector) return res.status(400).json({ error: "Select an active sector or institution registered by an administrator." });
     const evaluatorName = clean(req.body.evaluatorName, 160) || null;
     const evaluatorOrganization = clean(req.body.evaluatorOrganization, 180) || null;
@@ -243,7 +245,7 @@ app.get("/api/admin/users", requireAdministrator, async (_req, res, next) => {
 
 app.get("/api/admin/sectors", requireAdministrator, async (_req, res, next) => {
   try {
-    const sectors = await query(`SELECT id,code,name_en AS "nameEn",name_am AS "nameAm",leadership_level AS "leadershipLevel",active,sort_order AS "sortOrder",created_at AS "createdAt" FROM survey_sectors ORDER BY leadership_level,sort_order,name_en`);
+    const sectors = await query(`SELECT id,code,name_en AS "nameEn",name_am AS "nameAm",leadership_level AS "leadershipLevel",leadership_position AS "leadershipPosition",active,sort_order AS "sortOrder",created_at AS "createdAt" FROM survey_sectors ORDER BY leadership_level,leadership_position,sort_order,name_en`);
     res.json({ sectors });
   } catch (error) { next(error); }
 });
@@ -253,14 +255,16 @@ app.post("/api/admin/sectors", requireAdministrator, async (req, res, next) => {
     const nameEn = clean(req.body.nameEn, 160);
     const nameAm = clean(req.body.nameAm, 160) || null;
     const leadershipLevel = clean(req.body.leadershipLevel, 30);
-    const code = sectorCode(`${leadershipLevel}_${nameEn}`);
+    const leadershipPosition = clean(req.body.leadershipPosition, 80);
+    const code = sectorCode(`${leadershipPosition}_${nameEn}`);
     const sortOrder = Number.isInteger(Number(req.body.sortOrder)) ? Math.max(0, Math.min(9999, Number(req.body.sortOrder))) : 100;
     if (!sectionsByLevel.has(leadershipLevel)) return res.status(400).json({ error: "Select a valid leadership level." });
+    if (!LEADERSHIP_POSITIONS[leadershipLevel]?.has(leadershipPosition)) return res.status(400).json({ error: "Select a leadership position that matches the leadership level." });
     if (nameEn.length < 2 || code.length < 2) return res.status(400).json({ error: "Enter a valid English sector or institution name." });
     const rows = await query(
-      `INSERT INTO survey_sectors(code,name_en,name_am,leadership_level,sort_order,created_by) VALUES($1,$2,$3,$4,$5,$6)
-       RETURNING id,code,name_en AS "nameEn",name_am AS "nameAm",leadership_level AS "leadershipLevel",active,sort_order AS "sortOrder",created_at AS "createdAt"`,
-      [code, nameEn, nameAm, leadershipLevel, sortOrder, req.staff.username],
+      `INSERT INTO survey_sectors(code,name_en,name_am,leadership_level,leadership_position,sort_order,created_by) VALUES($1,$2,$3,$4,$5,$6,$7)
+       RETURNING id,code,name_en AS "nameEn",name_am AS "nameAm",leadership_level AS "leadershipLevel",leadership_position AS "leadershipPosition",active,sort_order AS "sortOrder",created_at AS "createdAt"`,
+      [code, nameEn, nameAm, leadershipLevel, leadershipPosition, sortOrder, req.staff.username],
     );
     res.status(201).json({ sector: rows[0] });
   } catch (error) {
@@ -275,14 +279,16 @@ app.post("/api/admin/sectors/:id", requireAdministrator, async (req, res, next) 
     const nameEn = clean(req.body.nameEn, 160);
     const nameAm = clean(req.body.nameAm, 160) || null;
     const leadershipLevel = clean(req.body.leadershipLevel, 30);
+    const leadershipPosition = clean(req.body.leadershipPosition, 80);
     const sortOrder = Number.isInteger(Number(req.body.sortOrder)) ? Math.max(0, Math.min(9999, Number(req.body.sortOrder))) : 100;
     if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: "Select a valid sector or institution." });
     if (!sectionsByLevel.has(leadershipLevel)) return res.status(400).json({ error: "Select a valid leadership level." });
+    if (!LEADERSHIP_POSITIONS[leadershipLevel]?.has(leadershipPosition)) return res.status(400).json({ error: "Select a leadership position that matches the leadership level." });
     if (nameEn.length < 2) return res.status(400).json({ error: "Enter a valid English sector or institution name." });
     const rows = await query(
-      `UPDATE survey_sectors SET name_en=$1,name_am=$2,leadership_level=$3,sort_order=$4,updated_at=now() WHERE id=$5
-       RETURNING id,code,name_en AS "nameEn",name_am AS "nameAm",leadership_level AS "leadershipLevel",active,sort_order AS "sortOrder",created_at AS "createdAt"`,
-      [nameEn, nameAm, leadershipLevel, sortOrder, id],
+      `UPDATE survey_sectors SET name_en=$1,name_am=$2,leadership_level=$3,leadership_position=$4,sort_order=$5,updated_at=now() WHERE id=$6
+       RETURNING id,code,name_en AS "nameEn",name_am AS "nameAm",leadership_level AS "leadershipLevel",leadership_position AS "leadershipPosition",active,sort_order AS "sortOrder",created_at AS "createdAt"`,
+      [nameEn, nameAm, leadershipLevel, leadershipPosition, sortOrder, id],
     );
     if (!rows[0]) return res.status(404).json({ error: "Sector or institution not found." });
     res.json({ sector: rows[0] });
@@ -295,7 +301,7 @@ app.post("/api/admin/sectors/:id/toggle", requireAdministrator, async (req, res,
     if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: "Select a valid sector or institution." });
     const rows = await query(
       `UPDATE survey_sectors SET active=NOT active,updated_at=now() WHERE id=$1
-       RETURNING id,code,name_en AS "nameEn",name_am AS "nameAm",leadership_level AS "leadershipLevel",active,sort_order AS "sortOrder"`,
+       RETURNING id,code,name_en AS "nameEn",name_am AS "nameAm",leadership_level AS "leadershipLevel",leadership_position AS "leadershipPosition",active,sort_order AS "sortOrder"`,
       [id],
     );
     if (!rows[0]) return res.status(404).json({ error: "Sector or institution not found." });
