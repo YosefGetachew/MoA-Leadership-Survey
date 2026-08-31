@@ -1,4 +1,6 @@
 const { Pool } = require("pg");
+const { readFileSync } = require("node:fs");
+const path = require("node:path");
 
 const pool = new Pool(process.env.DATABASE_URL ? {
   connectionString: process.env.DATABASE_URL,
@@ -141,7 +143,7 @@ async function ensureSchema() {
     CREATE TABLE IF NOT EXISTS leadership_assessment_responses (
       id bigserial PRIMARY KEY,
       survey_version text NOT NULL,
-      leadership_level text NOT NULL CHECK (leadership_level IN ('high_level','middle_level','lower_level')),
+      leadership_level text NOT NULL CHECK (leadership_level IN ('high_level','middle_level','lower_level','all_levels')),
       evaluated_leadership_position text,
       evaluated_sector text,
       evaluator_name text,
@@ -168,9 +170,23 @@ async function ensureSchema() {
     ALTER TABLE leadership_assessment_responses ADD COLUMN IF NOT EXISTS evaluator_position text;
     ALTER TABLE leadership_assessment_responses ADD COLUMN IF NOT EXISTS evaluator_contact text;
     ALTER TABLE leadership_assessment_responses ADD COLUMN IF NOT EXISTS overall_responses jsonb NOT NULL DEFAULT '{}'::jsonb;
+    ALTER TABLE leadership_assessment_responses ADD COLUMN IF NOT EXISTS evaluator_level text;
+    ALTER TABLE leadership_assessment_responses ADD COLUMN IF NOT EXISTS sex text CHECK (sex IN ('male','female'));
+    ALTER TABLE leadership_assessment_responses ADD COLUMN IF NOT EXISTS age integer CHECK (age BETWEEN 18 AND 100);
+    ALTER TABLE leadership_assessment_responses ADD COLUMN IF NOT EXISTS work_experience integer CHECK (work_experience >= 0 AND work_experience <= age);
+    ALTER TABLE leadership_assessment_responses ADD COLUMN IF NOT EXISTS assessment_targets jsonb NOT NULL DEFAULT '{}'::jsonb;
+    ALTER TABLE leadership_assessment_responses DROP CONSTRAINT IF EXISTS leadership_assessment_responses_leadership_level_check;
+    ALTER TABLE leadership_assessment_responses ADD CONSTRAINT leadership_assessment_responses_leadership_level_check
+      CHECK (leadership_level IN ('high_level','middle_level','lower_level','all_levels'));
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='leadership_assessment_responses'::regclass AND conname='leadership_assessment_evaluator_level_check') THEN
+        ALTER TABLE leadership_assessment_responses ADD CONSTRAINT leadership_assessment_evaluator_level_check
+          CHECK (evaluator_level IS NULL OR evaluator_level IN ('senior_leadership','middle_leadership','lower_leadership','expert'));
+      END IF;
+    END $$;
 
     INSERT INTO survey_settings(key,value,updated_at) VALUES
-      ('active_survey_version','leadership-reform-v2-2026-08-28',now()),
+      ('active_survey_version','leadership-demographics-v4',now()),
       ('final_survey_source','Revised Likert Scale Survey Tool file_Vf1.docx',now()),
       ('final_survey_source_sha256','CDA717D35DD56C1C29161CD10A2677731787FAEBAD9176ADE14D03B441594CE3',now()),
       ('sector_registry_source','https://www.moa.gov.et/officals/; https://www.moa.gov.et/accountable-institutions/',now()),
@@ -178,6 +194,7 @@ async function ensureSchema() {
     ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at;
   `);
 
+  await pool.query(readFileSync(path.join(__dirname, "..", "survey-window-schema.sql"), "utf8"));
   await pool.query(`UPDATE survey_sectors SET active=false,updated_at=now() WHERE created_by IS NULL`);
   const officialRows = Object.entries(registryByPosition).flatMap(([leadershipPosition, organizations]) =>
     organizations.map(([baseCode, nameEn, nameAm], index) => ({
@@ -211,4 +228,17 @@ async function query(text, values = []) {
   return (await pool.query(text, values)).rows;
 }
 
-module.exports = { pool, ensureSchema, query };
+async function withTransaction(work) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await work(async (text, values = []) => (await client.query(text, values)).rows);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally { client.release(); }
+}
+
+module.exports = { pool, ensureSchema, query, withTransaction };

@@ -154,13 +154,13 @@ Then verify in a browser:
 
 1. Open `https://leadershipsurvey.moa.gov.et`.
 2. Confirm the TLS padlock has no certificate warning.
-3. Scan the QR code at the top. It should open the same production URL automatically.
-4. Switch between English and Amharic.
-5. Confirm leadership positions and sectors change with the selected level.
-6. Submit one controlled test response.
-7. Sign in as administrator and confirm the response appears.
-8. Test CSV export.
-9. Restart the server during the maintenance window and confirm IIS, the API, and PostgreSQL recover automatically.
+3. Sign in as an administrator. Under **Survey availability**, choose **Open now** or **Schedule for later** and enter the closing time (plus a future opening time for a schedule). Select Ethiopian (E.C.) or Gregorian (G.C.) dates and set the time with hour, minute and AM/PM controls in Ethiopia time (UTC+3). This is not the traditional Ethiopian clock. Select **Review & open survey** or **Review schedule**, check both calendar equivalents and confirm. On the first upgrade, the survey is OFF until you do this.
+4. When the window is open, scan the QR code at the top. It should open the same production URL automatically. Switch between English and Amharic.
+5. Confirm evaluator information comes first, followed by Senior, Middle and Lower Leadership, with completion screens between sections and a final submit step.
+6. Use an approved test assessment to verify submission, admin results and CSV export.
+7. Test **Close survey** and its confirmation during an approved maintenance/test window. The public page should show no current survey and the last actual start/end period. A previously opened form must not be able to submit after closure. **Cancel scheduled survey** is available for a future window.
+8. Confirm automatic opening/closing using a short scheduled test window, then configure the intended collection dates. Turning a window off and back on creates a new period and new drafts, without deleting earlier submissions.
+9. Restart the server during the maintenance window and confirm IIS, the API, and PostgreSQL recover automatically. The saved survey schedule must remain unchanged.
 
 ## 9. Deploy later updates
 
@@ -170,7 +170,6 @@ git pull --ff-only origin main
 
 Set-Location ".\backend"
 npm ci
-npm run db:migrate
 pm2 restart ecosystem.config.cjs --update-env
 
 Set-Location "..\frontend"
@@ -181,3 +180,4 @@ Copy-Item -Path ".\build\*" -Destination "C:\inetpub\wwwroot\moa-leadership-surv
 
 Back up PostgreSQL before migrations, retain the previous frontend build for rollback, and deploy during an approved maintenance window.
 
+The updated backend applies its additive schema at startup; include `backend/survey-window-schema.sql` in the deployment. For this upgrade, do not rerun the initial `db:migrate` account-seeding command unless you also intend to reset the configured admin account from environment variables. Deploy both frontend and backend together: submission now requires the current collection-period ID. After the first upgrade, sign in and enable the first window. Subsequent restarts preserve existing windows. No FTMS, IIS binding or QR URL change is required for survey availability controls.

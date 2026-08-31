@@ -4,7 +4,7 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const express = require("express");
 const cookieParser = require("cookie-parser");
-const { ensureSchema, query } = require("./config/db");
+const { ensureSchema, query, withTransaction } = require("./config/db");
 const { createStaffSession, getStaffSession, requireStaff, requireAdministrator } = require("./auth");
 const { hashPassword, verifyPassword } = require("./password");
 const surveySections = require("../frontend/src/levelSurveyQuestions.json");
@@ -13,25 +13,12 @@ const app = express();
 const PORT = Number(process.env.PORT || 5001);
 const ADMIN_COOKIE = "moa_reform_admin";
 const RESPONDENT_COOKIE = "moa_leadership_survey_respondent";
-const SURVEY_VERSION = "leadership-reform-v2-2026-08-28";
-const SCALE_LABELS = { 1: "Strongly disagree", 2: "Disagree", 3: "Neither agree nor disagree", 4: "Agree", 5: "Strongly agree", 6: "N/A" };
-const OVERALL_QUESTIONS = [
-  ["OR01", "Awareness", "I understand the objectives and intended results of the institutional reform."],
-  ["OR02", "Relevance", "The reform priorities are relevant to the institution's responsibilities and current needs."],
-  ["OR03", "Implementation", "The planned reform activities are being implemented as intended."],
-  ["OR04", "Leadership", "Leaders provide clear direction, ownership and support for implementation of the reform."],
-  ["OR05", "Communication", "Information about reform decisions, progress and expectations is communicated clearly and on time."],
-  ["OR06", "Impact", "The reform has produced positive and measurable improvements in institutional performance."],
-  ["OR07", "Overall assessment", "Overall, I am satisfied with the progress and results of the institutional reform."],
-];
-const OVERALL_QUESTION_CODES = OVERALL_QUESTIONS.map(([code]) => code);
-const LEADERSHIP_POSITIONS = {
-  high_level: new Set(["minister", "state_minister", "advisor_to_minister", "director_general"]),
-  middle_level: new Set(["lead_executive", "executive", "project_coordinator"]),
-  lower_level: new Set(["team_leader", "desk_head"]),
-};
+const ADMIN_ATTEMPT_COOKIE = "moa_leadership_admin_attempt";
+const { SURVEY_VERSION, PREVIOUS_SURVEY_VERSION, LEGACY_SURVEY_VERSION, LEADERSHIP_POSITIONS, validateSubmission } = require("./survey-validation");
+const { buildSurveyCsv } = require("./survey-csv");
+const { buildSurveyAnalytics, parseFilters } = require("./survey-analytics");
+const { getAvailability, lockControl, assertOpen, changeWindow } = require("./survey-window");
 const sectionsByLevel = new Map(surveySections.map((section) => [section.level, section]));
-const allQuestionCodes = surveySections.flatMap((section) => section.questions.map((question) => question.code));
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "").split(",").map((value) => value.trim()).filter(Boolean);
 
 app.disable("x-powered-by");
@@ -52,9 +39,15 @@ app.use((req, res, next) => {
 
 function clean(value, max = 2000) { return typeof value === "string" ? value.trim().slice(0, max) : ""; }
 function cookieOptions(maxAge) { return { httpOnly: true, sameSite: "strict", secure: process.env.NODE_ENV === "production", maxAge, path: "/" }; }
-function average(values) { return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null; }
-function csvValue(value) { return `"${String(value ?? "").replace(/"/g, '""')}"`; }
-function formatScaleResponse(value) { return Number(value) === 6 ? "N/A" : value ? `${value} - ${SCALE_LABELS[value]}` : ""; }
+function responseToken(req, publicToken) {
+  const staff = getStaffSession(req);
+  const attempt = clean(req.cookies?.[ADMIN_ATTEMPT_COOKIE], 100);
+  if (staff?.role === 'admin' && /^[0-9a-f-]{36}$/.test(attempt)) {
+    const identity = crypto.createHash('sha256').update(staff.username).digest('hex');
+    return `admin:${identity}:${attempt}`;
+  }
+  return publicToken;
+}
 function sectorCode(value) { return clean(value, 120).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 80); }
 
 app.get("/", (_req, res) => res.json({ service: "MoA Leadership Assessment Survey API", status: "ok" }));
@@ -78,65 +71,68 @@ app.get("/api/survey/sectors", async (req, res, next) => {
 
 app.get("/api/survey/status", async (req, res, next) => {
   try {
-    const token = clean(req.cookies?.[RESPONDENT_COOKIE], 100);
-    if (!token) return res.json({ submitted: false });
+    res.set("Cache-Control", "no-store");
+    const availability = await getAvailability(query);
+    const token = clean(req.cookies?.[RESPONDENT_COOKIE], 100) || crypto.randomUUID();
+    const canSubmitAnother = getStaffSession(req)?.role === 'admin';
+    if (!req.cookies?.[RESPONDENT_COOKIE]) res.cookie(RESPONDENT_COOKIE, token, cookieOptions(365 * 24 * 60 * 60 * 1000));
+    if (!availability.period) return res.json({ submitted: false, availability, canSubmitAnother });
     const existing = await query(
       `SELECT leadership_level AS "leadershipLevel",completed_at AS "completedAt"
        FROM leadership_assessment_responses WHERE respondent_token=$1 AND survey_version=$2 LIMIT 1`,
-      [token, SURVEY_VERSION],
+      [`period:${availability.period.id}:${responseToken(req, token)}`, SURVEY_VERSION],
     );
-    res.json(existing[0] ? { submitted: true, ...existing[0] } : { submitted: false });
+    res.json({ submitted: Boolean(existing[0]), availability, canSubmitAnother });
   } catch (error) { next(error); }
 });
 
-app.post("/api/survey/restart", (_req, res) => {
-  res.clearCookie(RESPONDENT_COOKIE, cookieOptions(0));
-  res.json({ ready: true });
+// Only authenticated administrators can request a new attempt. The ordinary
+// respondent cookie is retained, so signing out cannot reset its submission limit.
+app.post("/api/survey/restart", requireAdministrator, async (req, res, next) => {
+  try {
+    await withTransaction(async transactionQuery => {
+      await lockControl(transactionQuery);
+      const availability = await getAvailability(transactionQuery);
+      assertOpen(availability, req.body.periodId);
+      const token = responseToken(req, clean(req.cookies?.[RESPONDENT_COOKIE], 100));
+      const existing = await transactionQuery('SELECT id FROM leadership_assessment_responses WHERE respondent_token=$1 AND survey_version=$2 LIMIT 1', [`period:${availability.period.id}:${token}`, SURVEY_VERSION]);
+      if (!existing.length) throw Object.assign(new Error('Complete your current evaluation before starting another.'), { statusCode: 409, code: 'ASSESSMENT_NOT_COMPLETED' });
+    });
+    res.cookie(ADMIN_ATTEMPT_COOKIE, crypto.randomUUID(), cookieOptions(8 * 60 * 60 * 1000));
+    res.set('Cache-Control', 'no-store').json({ restarted: true });
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message, code: error.code });
+    next(error);
+  }
 });
 
 app.post("/api/survey/responses", async (req, res, next) => {
   try {
-    const leadershipLevel = clean(req.body.leadershipLevel, 30);
-    const section = sectionsByLevel.get(leadershipLevel);
-    if (!section) return res.status(400).json({ error: "Select a valid leadership level." });
-    const evaluatedLeadershipPosition = clean(req.body.evaluatedLeadershipPosition, 80);
-    if (!LEADERSHIP_POSITIONS[leadershipLevel]?.has(evaluatedLeadershipPosition)) return res.status(400).json({ error: "Select a leadership position that matches the leadership level." });
-    const selectedSector = clean(req.body.evaluatedSector, 80);
-    const registeredSector = (await query(`SELECT code FROM survey_sectors WHERE code=$1 AND leadership_level=$2 AND leadership_position=$3 AND active=true LIMIT 1`, [selectedSector, leadershipLevel, evaluatedLeadershipPosition]))[0];
-    if (!registeredSector) return res.status(400).json({ error: "Select an active sector or institution registered by an administrator." });
-    const evaluatorName = clean(req.body.evaluatorName, 160) || null;
-    const evaluatorOrganization = clean(req.body.evaluatorOrganization, 180) || null;
-    const evaluatorPosition = clean(req.body.evaluatorPosition, 160) || null;
-    const evaluatorContact = clean(req.body.evaluatorContact, 180) || null;
-    const supplied = req.body.responses && typeof req.body.responses === "object" && !Array.isArray(req.body.responses) ? req.body.responses : {};
-    const suppliedOverall = req.body.overallResponses && typeof req.body.overallResponses === "object" && !Array.isArray(req.body.overallResponses) ? req.body.overallResponses : {};
-    const expectedCodes = section.questions.map((question) => question.code);
-    const normalized = {};
-    const normalizedOverall = {};
-    for (const code of OVERALL_QUESTION_CODES) {
-      const score = Number(suppliedOverall[code]);
-      if (!Number.isInteger(score) || score < 1 || score > 6) return res.status(400).json({ error: "Please answer every overall reform statement before submitting." });
-      normalizedOverall[code] = score;
-    }
-    if (Object.keys(suppliedOverall).some((code) => !OVERALL_QUESTION_CODES.includes(code))) return res.status(400).json({ error: "The response contains an unknown overall reform question." });
-    for (const code of expectedCodes) {
-      const score = Number(supplied[code]);
-      if (!Number.isInteger(score) || score < 1 || score > 6) return res.status(400).json({ error: "Please answer every statement before submitting." });
-      normalized[code] = score;
-    }
-    if (Object.keys(supplied).some((code) => !expectedCodes.includes(code))) return res.status(400).json({ error: "The response contains questions outside the selected leadership level." });
-    const respondentToken = clean(req.cookies?.[RESPONDENT_COOKIE], 100) || crypto.randomUUID();
-    const naCount = [...Object.values(normalizedOverall), ...Object.values(normalized)].filter((score) => score === 6).length;
-    const rows = await query(
+    const data = validateSubmission(req.body);
+    const respondentToken = clean(req.cookies?.[RESPONDENT_COOKIE], 100);
+    const rows = await withTransaction(async transactionQuery => {
+      // Serializes submission acceptance with admin on/off changes.
+      await lockControl(transactionQuery);
+      const availability = await getAvailability(transactionQuery);
+      assertOpen(availability, req.body.periodId);
+      if (!respondentToken) throw Object.assign(new Error("Reload the survey and allow cookies before submitting."), { statusCode: 428, code: "SURVEY_SESSION_REQUIRED" });
+      const saved = await transactionQuery(
       `INSERT INTO leadership_assessment_responses
-       (survey_version,leadership_level,evaluated_leadership_position,evaluated_sector,evaluator_name,evaluator_organization,evaluator_position,evaluator_contact,overall_responses,responses,answered_count,na_count,respondent_token)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::jsonb,$11,$12,$13) RETURNING id,completed_at AS "completedAt"`,
-      [SURVEY_VERSION, leadershipLevel, evaluatedLeadershipPosition, selectedSector, evaluatorName, evaluatorOrganization, evaluatorPosition, evaluatorContact, JSON.stringify(normalizedOverall), JSON.stringify(normalized), expectedCodes.length + OVERALL_QUESTION_CODES.length, naCount, respondentToken],
-    );
+       (survey_version,leadership_level,evaluator_level,sex,age,work_experience,responses,answered_count,na_count,respondent_token,survey_period_id)
+       SELECT $1,'all_levels',$2,$3,$4,$5,$6::jsonb,$7,$8,$9,p.id FROM survey_periods p
+       WHERE p.id=$10 AND p.closed_at IS NULL AND p.starts_at<=clock_timestamp() AND p.ends_at>clock_timestamp()
+       RETURNING id,completed_at AS "completedAt"`,
+      [SURVEY_VERSION, data.evaluatorLevel, data.sex, data.age, data.workExperience,
+        JSON.stringify(data.responses), data.answeredCount, data.naCount, `period:${availability.period.id}:${responseToken(req, respondentToken)}`, availability.period.id],
+      );
+      if (!saved.length) throw Object.assign(new Error("There is no survey at this time."), { statusCode: 403, code: "SURVEY_CLOSED" });
+      return saved;
+    });
     res.cookie(RESPONDENT_COOKIE, respondentToken, cookieOptions(365 * 24 * 60 * 60 * 1000));
     res.status(201).json({ saved: true, responseId: rows[0].id, completedAt: rows[0].completedAt });
   } catch (error) {
-    if (error.code === "23505") return res.status(409).json({ error: "A response from this browser has already been submitted." });
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message, code: error.code });
+    if (error.code === "23505") return res.status(409).json({ error: "A response from this browser has already been submitted for this survey period.", code: "ALREADY_SUBMITTED" });
     next(error);
   }
 });
@@ -165,76 +161,48 @@ app.get("/api/admin/session", (req, res) => {
   res.json(session ? { authorized: true, ...session } : { authorized: false });
 });
 
-app.get("/api/admin/survey-results", requireStaff, async (_req, res, next) => {
+app.get("/api/admin/survey-window", requireAdministrator, async (_req, res, next) => {
+  try { res.set("Cache-Control", "no-store").json(await getAvailability(query)); }
+  catch (error) { next(error); }
+});
+
+app.post("/api/admin/survey-window", requireAdministrator, async (req, res, next) => {
   try {
+    const status = await withTransaction(transactionQuery => changeWindow(transactionQuery, req.body, req.staff.username));
+    res.set("Cache-Control", "no-store").json(status);
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    next(error);
+  }
+});
+
+app.get("/api/admin/survey-results", requireStaff, async (req, res, next) => {
+  try {
+    const filters = parseFilters(req.query);
     const rows = await query(
-      `SELECT r.id,r.leadership_level AS "leadershipLevel",r.evaluated_leadership_position AS "evaluatedLeadershipPosition",r.evaluated_sector AS "evaluatedSector",s.name_en AS "evaluatedSectorName",r.evaluator_name AS "evaluatorName",
-              r.evaluator_organization AS "evaluatorOrganization",r.evaluator_position AS "evaluatorPosition",r.evaluator_contact AS "evaluatorContact",
-              r.overall_responses AS "overallResponses",r.responses,r.answered_count AS "answeredCount",r.na_count AS "naCount",r.completed_at AS "completedAt"
-       FROM leadership_assessment_responses r LEFT JOIN survey_sectors s ON s.code=r.evaluated_sector
-       WHERE r.survey_version=$1 ORDER BY r.completed_at DESC`,
-      [SURVEY_VERSION],
+      `SELECT r.id,r.leadership_level AS "leadershipLevel",r.evaluator_level AS "evaluatorLevel",
+              r.survey_version AS "surveyVersion",r.sex,r.age,r.work_experience AS "workExperience",
+              r.responses,r.completed_at AS "completedAt"
+       FROM leadership_assessment_responses r
+       WHERE r.survey_version IN ($1,$2,$3) ORDER BY r.completed_at DESC`,
+      [SURVEY_VERSION, PREVIOUS_SURVEY_VERSION, LEGACY_SURVEY_VERSION],
     );
-    const levelCounts = Object.fromEntries(surveySections.map((section) => [section.level, 0]));
-    const itemScores = new Map([...OVERALL_QUESTION_CODES, ...allQuestionCodes].map((code) => [code, []]));
-    let scoreCount = 0;
-    let naCount = 0;
-    rows.forEach((row) => {
-      levelCounts[row.leadershipLevel] += 1;
-      Object.entries(row.overallResponses || {}).forEach(([code, rawScore]) => {
-        const score = Number(rawScore);
-        if (score === 6) naCount += 1;
-        else if (score >= 1 && score <= 5) { scoreCount += 1; itemScores.get(code)?.push(score); }
-      });
-      Object.entries(row.responses || {}).forEach(([code, rawScore]) => {
-        const score = Number(rawScore);
-        if (score === 6) naCount += 1;
-        else if (score >= 1 && score <= 5) {
-          scoreCount += 1;
-          itemScores.get(code)?.push(score);
-        }
-      });
-    });
-    const overallItems = OVERALL_QUESTIONS.map(([code, dimension, text]) => {
-      const values = itemScores.get(code) || [];
-      const itemAverage = average(values);
-      return { code, text, dimension, leadershipLevel: "overall", responses: values.length, average: itemAverage === null ? null : Number(itemAverage.toFixed(2)) };
-    });
-    const leadershipItems = surveySections.flatMap((section) => section.questions.map((question) => {
-      const values = itemScores.get(question.code) || [];
-      const itemAverage = average(values);
-      return { code: question.code, text: question.text, leadershipLevel: section.level, responses: values.length, average: itemAverage === null ? null : Number(itemAverage.toFixed(2)) };
-    }));
-    const items = [...overallItems, ...leadershipItems];
-    const weightedTotal = items.reduce((sum, item) => sum + (item.average || 0) * item.responses, 0);
-    res.json({
-      version: SURVEY_VERSION,
-      summary: {
-        totalResponses: rows.length,
-        levelCounts,
-        averageScore: scoreCount ? Number((weightedTotal / scoreCount).toFixed(2)) : null,
-        naRate: scoreCount + naCount ? Number((naCount / (scoreCount + naCount) * 100).toFixed(1)) : 0,
-        completeRate: rows.length ? 100 : 0,
-      },
-      items,
-      recentResponses: rows.slice(0, 100),
-    });
-  } catch (error) { next(error); }
+    res.set("Cache-Control", "no-store").json(buildSurveyAnalytics(rows, filters));
+  } catch (error) {
+    if (error.statusCode === 400) return res.status(400).json({ error: error.message });
+    next(error);
+  }
 });
 
 app.get("/api/admin/survey-results.csv", requireStaff, async (_req, res, next) => {
   try {
     const rows = await query(
-      `SELECT id,leadership_level,evaluated_leadership_position,evaluated_sector,evaluator_name,evaluator_organization,evaluator_position,evaluator_contact,completed_at,overall_responses,responses
-       FROM leadership_assessment_responses WHERE survey_version=$1 ORDER BY completed_at`,
-      [SURVEY_VERSION],
+      `SELECT id,survey_version,leadership_level,evaluator_level,
+              sex,age,work_experience,completed_at,responses
+       FROM leadership_assessment_responses WHERE survey_version IN ($1,$2,$3) ORDER BY completed_at DESC`,
+      [SURVEY_VERSION, PREVIOUS_SURVEY_VERSION, LEGACY_SURVEY_VERSION],
     );
-    const header = ["response_id", "leadership_level", "evaluated_leadership_position", "evaluated_sector", "evaluator_name", "evaluator_organization", "evaluator_position", "evaluator_contact", "completed_at", ...OVERALL_QUESTION_CODES, ...allQuestionCodes];
-    const lines = [header.map(csvValue).join(",")];
-    rows.forEach((row) => {
-      lines.push([row.id, row.leadership_level, row.evaluated_leadership_position, row.evaluated_sector, row.evaluator_name, row.evaluator_organization, row.evaluator_position, row.evaluator_contact, row.completed_at.toISOString(), ...OVERALL_QUESTION_CODES.map((code) => formatScaleResponse(row.overall_responses?.[code])), ...allQuestionCodes.map((code) => formatScaleResponse(row.responses?.[code]))].map(csvValue).join(","));
-    });
-    res.type("text/csv").attachment(`leadership-assessment-${new Date().toISOString().slice(0, 10)}.csv`).send(lines.join("\n"));
+    res.type("text/csv; charset=utf-8").attachment(`leadership-assessment-${new Date().toISOString().slice(0, 10)}.csv`).send(buildSurveyCsv(rows));
   } catch (error) { next(error); }
 });
 
@@ -332,6 +300,9 @@ app.use((error, _req, res, _next) => {
   res.status(error.statusCode || 500).json({ error: "The server could not complete this request." });
 });
 
-ensureSchema()
-  .then(() => app.listen(PORT, process.env.HOST || "127.0.0.1", () => console.log(`MoA Leadership Survey API listening on port ${PORT}`)))
-  .catch((error) => { console.error("Startup failed:", error); process.exit(1); });
+if (require.main === module) {
+  ensureSchema()
+    .then(() => app.listen(PORT, process.env.HOST || "127.0.0.1", () => console.log(`MoA Leadership Survey API listening on port ${PORT}`)))
+    .catch(error => { console.error("Startup failed:", error); process.exit(1); });
+}
+module.exports = app;

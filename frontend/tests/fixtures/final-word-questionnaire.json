@@ -1,0 +1,375 @@
+{
+  "englishSource": "Revised Likert Scale Survey Tool file_Vf1.docx",
+  "englishSourceSha256": "CDA717D35DD56C1C29161CD10A2677731787FAEBAD9176ADE14D03B441594CE3",
+  "amharicSource": "Amharic Version lIkert Scale Instruments.docx",
+  "amharicSourceSha256": "03F955B930329EA8A240B001678A9CD93933139CFC5697EBAB28C79C6E0186E8",
+  "note": "Extracted from supplied Word files. Only table-cell edge whitespace and printed Amharic question-number prefixes are removed. Spelling, punctuation, and internal spacing are preserved.",
+  "sections": [
+    {
+      "level": "high_level",
+      "audience": "Mministers, state ministers, directors general, commissioners, bureau heads and equivalent senior executives",
+      "audienceAm": "ሚኒስትር፣ ዴኤታዎች፣ ዳይሬክተሮች፣ ኮሚሽነሮች፣ የቢሮ ኃላፊዎች እና እኩያ የሆኑ ከፍተኛ ኃላፊዎች",
+      "questions": [
+        {
+          "code": "HL01",
+          "text": "He/She set and communicates a clear vision for the organization/units.",
+          "textAm": "ለተቋሙ/ለክፍሎች ግልጽ ራዕይ ያስቀምጣል/ታስቀምጣለች፤ ያሳውቃል/ታሳውቃለች።"
+        },
+        {
+          "code": "HL02",
+          "text": "He/She provides clear strategic direction.",
+          "textAm": "ግልጽ የስትራቴጂ አቅጣጫ ይሰጣል/ትሰጣለች።"
+        },
+        {
+          "code": "HL03",
+          "text": "He/She considers the broader economic, social and environmental implications of decisions.",
+          "textAm": "የውሳኔዎችን ሰፊ ኢኮኖሚያዊ፣ ማህበራዊ እና አካባቢያዊ ተጽዕኖዎች ግምት ውስጥ ያስገባል/ታስገባለች።"
+        },
+        {
+          "code": "HL04",
+          "text": "He/She ensures alignment between policy, strategy, programs and resources.",
+          "textAm": "በፖሊሲ፣ በስትራቴጂ፣ በፕሮግራሞች እና በሀብቶች መካከል ትስስር (አላይንመንት) መኖሩን ያረጋግጣል/ታረጋግጣለች።"
+        },
+        {
+          "code": "HL05",
+          "text": "He/She ensures the development of clear and realistic strategic and operational plans.",
+          "textAm": "ግልጽ እና እውነተኛ የሆኑ የስትራቴጂክ እና የተግባር ዕቅዶች መዘጋጀታቸውን ያረጋግጣል/ታረጋግጣለች።"
+        },
+        {
+          "code": "HL06",
+          "text": "He/She monitors and evaluates regularly the implementation of the strategic and operational plan according to the stated performance targets.",
+          "textAm": "የስትራቴጂክ እና የተግባር ዕቅድ አፈጻጸምን ከተቀመጡት የግብ ስኬቶች አንጻር በየጊዜው ይከታተላል/ትከታተላለች፤ ይመዝናል/ትመዝናለች።"
+        },
+        {
+          "code": "HL07",
+          "text": "He/Shes put in place working relationship with diverse stakeholders",
+          "textAm": "ከተለያዩ ባለድርሻ አካላት ጋር የሥራ ግንኙነቶችን ይፈጥራል/ትፈጥራለች።"
+        },
+        {
+          "code": "HL08",
+          "text": "He/She effectively coordinates across departments and institutions.",
+          "textAm": "በክፍሎች እና በተቋማት መካከል ውጤታማ ቅንጅት ያደርጋል/ታደርጋለች።"
+        },
+        {
+          "code": "HL09",
+          "text": "He/She makes evidence- based decisions on major strategic and institutional issues.",
+          "textAm": "በዋና ዋና ስትራቴጂካዊ እና ተቋማዊ ጉዳዮች ላይ በማስረጃ ላይ የተመሠረቱ ውሳኔዎችን ያስልፋል/ታስልፋለች።"
+        },
+        {
+          "code": "HL10",
+          "text": "He/She anticipates emerging national and sectoral challenges.",
+          "textAm": "ወቅታዊና መጪ ሀገራዊ እና ዘርፋዊ  ፈተናዎችን በቅድሚያ ይገምታል/ትገምታለች።"
+        },
+        {
+          "code": "HL11",
+          "text": "He/She creates an enabling environment for institutional transformation.",
+          "textAm": "ለተቋማዊ ሪፎርም/ለውጥ ምቹ ሁኔታን ይፈጥራል/ትፈጥራለች።"
+        },
+        {
+          "code": "HL12",
+          "text": "He/She effectively represents the institution.",
+          "textAm": "ተቋሙን በብቃት ይወክላል/ትወክላለች።"
+        },
+        {
+          "code": "HL13",
+          "text": "He/She makes decisions in a timely manner.",
+          "textAm": "ውሳኔዎችን በወቅቱ ያሳልፋል/ታስልፋለች።"
+        },
+        {
+          "code": "HL14",
+          "text": "He/She holds senior managers accountable for results.",
+          "textAm": "ከፍተኛ ሥራ አስኪያጆችን ለውጤት ተጠያቂ ያደርጋል/ታደርጋለች።"
+        },
+        {
+          "code": "HL15",
+          "text": "He/She promotes institutional learning and innovation.",
+          "textAm": "ተቋማዊ ትምህርትን እና ፈጠራን (ኢኖቬሽን) ያበረታታል/ታበረታታለች።"
+        },
+        {
+          "code": "HL16",
+          "text": "He/She ensures that institutional reforms produce measurable improvements.",
+          "textAm": "ተቋማዊ ሪፎርሞች ተጨባጭ መሻሻሎችን ማምጣታቸውን ያረጋግጣል/ታረጋግጣለች።"
+        },
+        {
+          "code": "HL17",
+          "text": "He/She establishes working system to motivate the entire employees to perform effectively.",
+          "textAm": "ሁሉም ሠራተኞች በብቃት እንዲሠሩ የሚያበረታታ የሥራ ሥርዓት ይዘረጋል/ትዘረጋለች።"
+        },
+        {
+          "code": "HL18",
+          "text": "He/She provides useful feedback on performance.",
+          "textAm": "በአፈጻጸም ላይ ጠቃሚ ግብረ-መልስ (Feed-back) ይሰጣል/ትሰጣለች።"
+        },
+        {
+          "code": "HL19",
+          "text": "He/She ensures accountability, transparency and integrity",
+          "textAm": "ተጠያቂነትን፣ ግልጽነትን እና አቋምን (Integrity) ያረጋግጣል/ታረጋግጣለች።"
+        },
+        {
+          "code": "HL20",
+          "text": "He/She promotes the use of modern technologies to improve performance.",
+          "textAm": "አፈጻጸምን ለማሻሻል ዘመናዊ ቴክኖሎጂዎችን መጠቀምን ያበረታታል/ታበረታታለች።"
+        },
+        {
+          "code": "HL21",
+          "text": "He/She follows up the utilization of financial resources efficiently and effectively across the system",
+          "textAm": "በሥርዓቱ ውስጥ የፋይናንስ ሀብቶች በቁጠባ እና በውጤታማነት ጥቅም ላይ መዋላቸውን ይከታተላል/ትከታተላለች።"
+        },
+        {
+          "code": "HL22",
+          "text": "He/She displays self-exemplary in improving personal leadership competence and put in place a working procedure to improve the competence of others",
+          "textAm": "አርአያነት ያለው የግል መሪነትን ያሳያል/ታሳያለች፤ የሌሎችን ብቃት ለማሳደግ አሠራሮችን ይዘረጋል/ትዘረጋለች።"
+        },
+        {
+          "code": "HL23",
+          "text": "He/She promotes coaching and mentorship to enhance employee development",
+          "textAm": "የሠራተኞችን ብቃት ለማሳደግ  ልምድና ዕውቀትን ያከፍላል/ታካፍላለች ፣(Coaching&Mentorship) ያበረታታል/ታበረታታለች(Coaching&Mentorship) ።"
+        }
+      ]
+    },
+    {
+      "level": "middle_level",
+      "audience": "Lead executives, executives, advisors, and project coordinators",
+      "audienceAm": "መሪ ሥራ አስፈጻሚዎች፣ ሥራ አስፈጻሚዎች፣ አማካሪዎች እና የፕሮጀክት አስተባባሪዎች",
+      "questions": [
+        {
+          "code": "ML01",
+          "text": "He/She translates the organizational vision, mission, values and  objectives  in his/her department",
+          "textAm": "የተቋሙን ራዕይ፣ ተልዕኮ፣ እሴቶች እና ዓላማዎች በሥራ ክፍሉ ወደ ተግባር ይለውጣል/ትለውጣለች።"
+        },
+        {
+          "code": "ML02",
+          "text": "He/She effectively translates strategic plan into operational actions.",
+          "textAm": "የስትራቴጂክ ዕቅዱን ወደ ተግባራዊ እንቅስቃሴዎች በብቃት ይተርጉማል/ትተርጉማለች።"
+        },
+        {
+          "code": "ML03",
+          "text": "He/She coordinates activities across teams and functions.",
+          "textAm": "በቡድኖች እና በሥራ ክፍሎች መካከል ያሉ እንቅስቃሴዎችን ያስተባብራል/ታስተባብራለች።"
+        },
+        {
+          "code": "ML04",
+          "text": "He/She converts strategic objectives into departmental work plans.",
+          "textAm": "የስትራቴጂክ ዓላማዎችን ወደ የክፍሉ የሥራ ዕቅዶች ይለውጣል/ትለውጣለች።"
+        },
+        {
+          "code": "ML05",
+          "text": "He/She monitors implementation and reports performance accurately.",
+          "textAm": "አፈጻጸሙን ይከታተላል/ትከታተላለች፤ የአፈጻጸም ሪፖርቶችን በትክክል ያቀርባል/ታቀርባለች።"
+        },
+        {
+          "code": "ML06",
+          "text": "He/She promote team leadership with clear roles and responsibilities.",
+          "textAm": "ግልጽ ሚና እና ኃላፊነት ያለው የቡድን የቡድን ሥራ ያበረታታል/ታበረታታለች።"
+        },
+        {
+          "code": "ML07",
+          "text": "He/She resolves operational problems before they become major issues.",
+          "textAm": "የሥራ እንቅስቃሴ ችግሮች ወደ ትላልቅ እንቅፋቶች ከመቀየራቸው በፊት ይፈታል/ትፈታለች።"
+        },
+        {
+          "code": "ML08",
+          "text": "He/She provides effective guidance to lower-level managers and employees.",
+          "textAm": "ታችኛ ደረጃ መሪዎች እና ሠራተኞች ውጤታማ መመሪያ ይሰጣል/ትሰጣለች።"
+        },
+        {
+          "code": "ML09",
+          "text": "He/She balances organizational priorities with operational realities.",
+          "textAm": "ተቋሙ ቅድሚያ የሚሰጣቸውን ጉዳዮች ከዕለት ተዕለት የሥራ ነባራዊ ሁኔታዎች ጋር ያመዛዝናል/ታመዛዝናለች።"
+        },
+        {
+          "code": "ML10",
+          "text": "He/She communicates management decisions clearly to staff.",
+          "textAm": "የአመራር ውሳኔዎችን ለሠራተኞች ግልጽ በሆነ መንገድ ያስተላልፋል/ታስተላልፋለች።"
+        },
+        {
+          "code": "ML11",
+          "text": "He/She provides reliable information to senior management.",
+          "textAm": "ለከፍተኛ አመራሩ ተፎካካሪ እና አስተማማኝ መረጃ ያቀርባል/ታቀርባለች።"
+        },
+        {
+          "code": "ML12",
+          "text": "He/She links strategic objectives with day-to-day implementation.",
+          "textAm": "የስትራቴጂክ ዓላማዎችን ከዕለት ተዕለት አፈጻጸም ጋር ያገናኛል/ታገናኛለች።"
+        },
+        {
+          "code": "ML13",
+          "text": "He/She establishes routine working relationship with relevant stakeholders",
+          "textAm": "ከሚመለከታቸው ባለድርሻ አካላት ጋር መደበኛ የሥራ ግንኙነት ይፈጥራል/ትፈጥራለች።"
+        },
+        {
+          "code": "ML14",
+          "text": "He/She bases decisions on reliable information and evidence.",
+          "textAm": "ውሳኔዎችን በአስተማማኝ መረጃ እና ማስረጃ ላይ ይመሠርታል/ትመሠርታለች።"
+        },
+        {
+          "code": "ML15",
+          "text": "He/She makes decisions in a timely manner.",
+          "textAm": "ውሳኔዎችን በወቅቱ ያስልፋል/ታስልፋለች።"
+        },
+        {
+          "code": "ML16",
+          "text": "He/She encourages subordinate team leaders and employees to contribute ideas.",
+          "textAm": "የበታች የቡድን መሪዎች እና ሠራተኞች ሀሳቦችን እንዲያበረክቱ ያበረታታል/ታበረታታለች።"
+        },
+        {
+          "code": "ML17",
+          "text": "He/She develops the capacity of team members.",
+          "textAm": "የቡድን አባላትን አቅም ያጎለብታል/ታጎለብታለች።"
+        },
+        {
+          "code": "ML18",
+          "text": "He/She provides useful feedback on subordinate leaders’ and employee performance.",
+          "textAm": "በበታች መሪዎች እና ሠራተኞች አፈጻጸም ላይ ጠቃሚ ግብረ-መልስ ይሰጣል/ትሰጣለች።"
+        },
+        {
+          "code": "ML19",
+          "text": "He/She delegates responsibilities as opportunities for employee development.",
+          "textAm": "ኃላፊነቶችን ለሠራተኞች እድገት እንደ መልካም አጋጣሚ በመጠቀም ይወክላል/ትወክላለች (Delegates)።"
+        },
+        {
+          "code": "ML20",
+          "text": "He/She communicates decisions in a timely manner.",
+          "textAm": "ውሳኔዎችን በጊዜው (በወቅቱ) ያሳውቃል/ታሳውቃለች።"
+        },
+        {
+          "code": "ML21",
+          "text": "He/She ensures accountability, transparency and integrate",
+          "textAm": "ተጠያቂነትን፣ ግልጽነትን እና ታማኝነትን ያረጋግጣል/ታረጋግጣለች።"
+        },
+        {
+          "code": "ML22",
+          "text": "He/She is a role model for his/her subordinates and staff in ethical values",
+          "textAm": "ለበታቾቹ እና ለሠራተኞቹ በሥነ-ምግባር እሴቶች አርአያ ይሆናል/ትሆናለች።"
+        },
+        {
+          "code": "ML23",
+          "text": "He/She allocates and utilizes resources efficiently and effectively",
+          "textAm": "ሀብቶችን በቁጠባ እና በውጤታማነት ይመድባል/ትመድባለች፤ ጥቅም ላይ ያውላል/ታውላለች።"
+        },
+        {
+          "code": "ML24",
+          "text": "He/She promotes his/her personal leadership competence.",
+          "textAm": "የግል አመራር ብቃቱን/ብቃቷን ያሳድጋል/ታሳድጋለች።"
+        },
+        {
+          "code": "ML25",
+          "text": "He/She promotes the use of modern technologies that improve performance",
+          "textAm": "አፈጻጸምን የሚያሻሽሉ ዘመናዊ ቴክኖሎጂዎችን መጠቀምን ያበረታታል/ታበረታታለች።"
+        },
+        {
+          "code": "ML26",
+          "text": "He/She provides feedback for subordinates and employees",
+          "textAm": "ለበታቾች እና ለሠራተኞች ግብረ-መልስ ይሰጣል/ትሰጣለች።"
+        },
+        {
+          "code": "ML27",
+          "text": "He/She treats the staff fairly",
+          "textAm": "ሠራተኞችን በፍትሃዊነት ያስተናግዳል/ታስተናግዳለች።"
+        },
+        {
+          "code": "ML28",
+          "text": "He/She coaches and mentor his/her subordinates",
+          "textAm": "የበታቾቹን ያሰለጥናል/ታሰለጥናለች፤ ይመክራል/ትመክራለች (Coaches & mentors)።"
+        }
+      ]
+    },
+    {
+      "level": "lower_level",
+      "audience": "Team leaders, Desk head",
+      "audienceAm": "የቡድን መሪዎች፣ የዴስክ ኃላፊዎች",
+      "questions": [
+        {
+          "code": "LL01",
+          "text": "He/She translates the organizational vision, mission, values and  objectives in daily activities",
+          "textAm": "የተቋሙን ራዕይ፣ ተልዕኮ፣ እሴቶች እና ዓላማዎች ወደ ዕለት ተዕለት እንቅስቃሴዎች ይለውጣል/ትለውጣለች።"
+        },
+        {
+          "code": "LL02",
+          "text": "He/She ensure that employees understand how their work contributes to strategic objectives",
+          "textAm": "ሠራተኞች የሥራቸው ውጤት ለስትራቴጂክ ዓላማዎች እንዴት አስተዋጽኦ እንደሚያደርግ እንዲረዱ ያደርጋል/ታደርጋለች።"
+        },
+        {
+          "code": "LL03",
+          "text": "He/She develops clear and realistic work plans.",
+          "textAm": "ግልጽ እና እውነተኛ የሆኑ የሥራ ዕቅዶችን ያዘጋጃል/ታዘጋጃለች።"
+        },
+        {
+          "code": "LL04",
+          "text": "He/She clearly assigns tasks to employees.",
+          "textAm": "ለሠራተኞች ተግባራትን በግልጽ ይመድባልLikertLikertLikert/ትመድባለች።"
+        },
+        {
+          "code": "LL05",
+          "text": "He/She monitors day-to-day work effectively.",
+          "textAm": "የዕለት ተዕለት ሥራዎችን በብቃት ይከታተላል/ትከታተላለች።"
+        },
+        {
+          "code": "LL06",
+          "text": "He/She build teams with clear roles and responsibilities.",
+          "textAm": "ግልጽ ሚና እና ኃላፊነት ያላቸውን ቡድኖች ይገነባል/ትገነባለች።"
+        },
+        {
+          "code": "LL07",
+          "text": "He/She provides practical guidance when employees face difficulties.",
+          "textAm": "ሠራተኞች ችግር ሲገጥማቸው ተግባራዊ መመሪያ ይሰጣል/ትሰጣለች።"
+        },
+        {
+          "code": "LL08",
+          "text": "He/She ensures that tasks are completed on time with the expected quality and efficiency.",
+          "textAm": "ተግባራት በተጠበቀው ጥራት፣ ውጤታማነት እና በተቀመጠው ጊዜ መጠጠናቀቃቸውን ያረጋግጣል/ታረጋግጣለች።"
+        },
+        {
+          "code": "LL09",
+          "text": "He/She maintains discipline and professionalism within the team.",
+          "textAm": "በቡድኑ ውስጥ ዲሲፕሊን እና ሙያዊነትን ይጠብቃል/ትጠብቃለች።"
+        },
+        {
+          "code": "LL10",
+          "text": "He/She communicates workplace issues to higher management.",
+          "textAm": "በሥራ ቦታ የሚገጥሙ ችግሮችን ለከፍተኛ አመራር ያሳውቃል/ታሳውቃለች።"
+        },
+        {
+          "code": "LL11",
+          "text": "He/She treats team members fairly.",
+          "textAm": "የቡድን አባላትን በፍትሃዊነት ያስተናግዳል/ታስተናግዳለች።"
+        },
+        {
+          "code": "LL12",
+          "text": "He/She encourages teamwork and cooperation.",
+          "textAm": "የቡድን ሥራን እና ትብብርን ያበረታታል/ታበረታታለች።"
+        },
+        {
+          "code": "LL13",
+          "text": "He/She identifies problems quickly and reports them appropriately.",
+          "textAm": "ችግሮችን በፍጥነት ይለያል/ትለያለች፤ በአግባቡም ሪፖርት ያደርጋል/ታደርጋለች።"
+        },
+        {
+          "code": "LL14",
+          "text": "He/She provides practical feedback to employees.",
+          "textAm": "ለሠራተኞች ተግባራዊ ግብረ-መልስ ይሰጣል/ትሰጣለች።"
+        },
+        {
+          "code": "LL15",
+          "text": "He/She ensures that frontline services meet expected standards.",
+          "textAm": "የቀጥታ አገልግሎቶች በተጠበቀው ደረጃ ላይ መሆናቸውን ያረጋግጣል/ታረጋግጣለች።"
+        },
+        {
+          "code": "LL16",
+          "text": "He/She promotes timely monitoring and evaluation of employees’ performance and quality reports regularly",
+          "textAm": "የሠራተኞችን አፈጻጸም በወቅቱ መከታተልንና መገምገምን ያበረታታል/ታበረታታለች፤ የጥራት ሪፖርቶችንም በየጊዜው ያቀርባል/ታቀርባለች።"
+        },
+        {
+          "code": "LL17",
+          "text": "He/She scans the environment and provides reliable information to immediate leaders",
+          "textAm": "የአሠራር ሁኔታዎችን ዳሰሳ በማድረግ ለቅርብ አመራሮች አስተማማኝ መረጃ ያቀርባል/ታቀርባለች።"
+        },
+        {
+          "code": "LL18",
+          "text": "He/She conduct periodic assessment to ensure the work activities are carried out as per the stated plan and provide feedback to immediate leaders",
+          "textAm": "የሥራ እንቅስቃሴዎች በተቀመጠው ዕቅድ መሠረት መከናወናቸውን ለማረጋገጥ በየጊዜው ምዘና ያካሂዳል/ታካሂዳለች፤ ለቅርብ አመራሮችም ግብረ-መልስ ያቀርባል/ታቀርባለች።"
+        }
+      ]
+    }
+  ]
+}
