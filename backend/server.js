@@ -7,7 +7,6 @@ const cookieParser = require("cookie-parser");
 const { ensureSchema, query, withTransaction } = require("./config/db");
 const { createStaffSession, getStaffSession, requireStaff, requireAdministrator } = require("./auth");
 const { hashPassword, verifyPassword } = require("./password");
-const surveySections = require("../frontend/src/levelSurveyQuestions.json");
 
 const app = express();
 const PORT = Number(process.env.PORT || 5001);
@@ -18,7 +17,8 @@ const { SURVEY_VERSION, PREVIOUS_SURVEY_VERSION, LEGACY_SURVEY_VERSION, LEADERSH
 const { buildSurveyCsv } = require("./survey-csv");
 const { buildSurveyAnalytics, parseFilters } = require("./survey-analytics");
 const { getAvailability, lockControl, assertOpen, changeWindow } = require("./survey-window");
-const sectionsByLevel = new Map(surveySections.map((section) => [section.level, section]));
+const { QUESTION_CATEGORIES, QUESTION_CODE_PATTERN, getQuestionSections, questionCodes } = require("./question-bank");
+const { normalizeId, listSurveys, getSurvey, createSurvey, updateSurvey } = require("./survey-catalog");
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "").split(",").map((value) => value.trim()).filter(Boolean);
 
 app.disable("x-powered-by");
@@ -31,7 +31,7 @@ app.use((req, res, next) => {
   }
   if (req.method === "OPTIONS") {
     res.header("Access-Control-Allow-Headers", "content-type");
-    res.header("Access-Control-Allow-Methods", "GET,POST");
+    res.header("Access-Control-Allow-Methods", "GET,POST,PATCH");
     return res.sendStatus(204);
   }
   next();
@@ -58,11 +58,19 @@ app.get("/api/health", async (_req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.get("/api/survey/questions", async (_req, res, next) => {
+  try {
+    const availability = await getAvailability(query);
+    const sections = await getQuestionSections(query, { surveyId: Number(availability.survey.id) });
+    res.set("Cache-Control", "no-store").json({ survey: availability.survey, sections });
+  } catch (error) { next(error); }
+});
+
 app.get("/api/survey/sectors", async (req, res, next) => {
   try {
     const leadershipLevel = clean(req.query.leadershipLevel, 30);
     const leadershipPosition = clean(req.query.leadershipPosition, 80);
-    if (!sectionsByLevel.has(leadershipLevel)) return res.status(400).json({ error: "Select a valid leadership level before loading sectors." });
+    if (!QUESTION_CATEGORIES.has(leadershipLevel)) return res.status(400).json({ error: "Select a valid leadership level before loading sectors." });
     if (!LEADERSHIP_POSITIONS[leadershipLevel]?.has(leadershipPosition)) return res.status(400).json({ error: "Select a leadership position before loading sectors or institutions." });
     const sectors = await query(`SELECT code AS value,name_en AS label,name_am AS "labelAm" FROM survey_sectors WHERE active=true AND leadership_level=$1 AND leadership_position=$2 ORDER BY sort_order,name_en`, [leadershipLevel, leadershipPosition]);
     res.json({ sectors });
@@ -79,8 +87,8 @@ app.get("/api/survey/status", async (req, res, next) => {
     if (!availability.period) return res.json({ submitted: false, availability, canSubmitAnother });
     const existing = await query(
       `SELECT leadership_level AS "leadershipLevel",completed_at AS "completedAt"
-       FROM leadership_assessment_responses WHERE respondent_token=$1 AND survey_version=$2 LIMIT 1`,
-      [`period:${availability.period.id}:${responseToken(req, token)}`, SURVEY_VERSION],
+       FROM leadership_assessment_responses WHERE respondent_token=$1 AND survey_id=$2 LIMIT 1`,
+      [`period:${availability.period.id}:${responseToken(req, token)}`, Number(availability.survey.id)],
     );
     res.json({ submitted: Boolean(existing[0]), availability, canSubmitAnother });
   } catch (error) { next(error); }
@@ -95,7 +103,7 @@ app.post("/api/survey/restart", requireAdministrator, async (req, res, next) => 
       const availability = await getAvailability(transactionQuery);
       assertOpen(availability, req.body.periodId);
       const token = responseToken(req, clean(req.cookies?.[RESPONDENT_COOKIE], 100));
-      const existing = await transactionQuery('SELECT id FROM leadership_assessment_responses WHERE respondent_token=$1 AND survey_version=$2 LIMIT 1', [`period:${availability.period.id}:${token}`, SURVEY_VERSION]);
+      const existing = await transactionQuery('SELECT id FROM leadership_assessment_responses WHERE respondent_token=$1 AND survey_id=$2 LIMIT 1', [`period:${availability.period.id}:${token}`, Number(availability.survey.id)]);
       if (!existing.length) throw Object.assign(new Error('Complete your current evaluation before starting another.'), { statusCode: 409, code: 'ASSESSMENT_NOT_COMPLETED' });
     });
     res.cookie(ADMIN_ATTEMPT_COOKIE, crypto.randomUUID(), cookieOptions(8 * 60 * 60 * 1000));
@@ -108,21 +116,23 @@ app.post("/api/survey/restart", requireAdministrator, async (req, res, next) => 
 
 app.post("/api/survey/responses", async (req, res, next) => {
   try {
-    const data = validateSubmission(req.body);
     const respondentToken = clean(req.cookies?.[RESPONDENT_COOKIE], 100);
     const rows = await withTransaction(async transactionQuery => {
       // Serializes submission acceptance with admin on/off changes.
       await lockControl(transactionQuery);
       const availability = await getAvailability(transactionQuery);
       assertOpen(availability, req.body.periodId);
+      if (req.body.surveyId != null && String(req.body.surveyId) !== availability.survey.id) throw Object.assign(new Error('The published survey has changed. Please reload and begin again.'), { statusCode: 409, code: 'SURVEY_CHANGED' });
+      const sections = await getQuestionSections(transactionQuery, { surveyId: Number(availability.survey.id) });
+      const data = validateSubmission(req.body, questionCodes(sections));
       if (!respondentToken) throw Object.assign(new Error("Reload the survey and allow cookies before submitting."), { statusCode: 428, code: "SURVEY_SESSION_REQUIRED" });
       const saved = await transactionQuery(
       `INSERT INTO leadership_assessment_responses
-       (survey_version,leadership_level,evaluator_level,sex,age,work_experience,responses,answered_count,na_count,respondent_token,survey_period_id)
-       SELECT $1,'all_levels',$2,$3,$4,$5,$6::jsonb,$7,$8,$9,p.id FROM survey_periods p
-       WHERE p.id=$10 AND p.closed_at IS NULL AND p.starts_at<=clock_timestamp() AND p.ends_at>clock_timestamp()
+       (survey_id,survey_version,leadership_level,evaluator_level,sex,age,work_experience,responses,answered_count,na_count,respondent_token,survey_period_id)
+       SELECT $1,$2,'all_levels',$3,$4,$5,$6,$7::jsonb,$8,$9,$10,p.id FROM survey_periods p
+       WHERE p.id=$11 AND p.survey_id=$1 AND p.closed_at IS NULL AND p.starts_at<=clock_timestamp() AND p.ends_at>clock_timestamp()
        RETURNING id,completed_at AS "completedAt"`,
-      [SURVEY_VERSION, data.evaluatorLevel, data.sex, data.age, data.workExperience,
+      [Number(availability.survey.id), SURVEY_VERSION, data.evaluatorLevel, data.sex, data.age, data.workExperience,
         JSON.stringify(data.responses), data.answeredCount, data.naCount, `period:${availability.period.id}:${responseToken(req, respondentToken)}`, availability.period.id],
       );
       if (!saved.length) throw Object.assign(new Error("There is no survey at this time."), { statusCode: 403, code: "SURVEY_CLOSED" });
@@ -161,6 +171,58 @@ app.get("/api/admin/session", (req, res) => {
   res.json(session ? { authorized: true, ...session } : { authorized: false });
 });
 
+app.get("/api/admin/surveys", requireStaff, async (_req, res, next) => {
+  try { res.set("Cache-Control", "no-store").json({ surveys: await listSurveys(query) }); }
+  catch (error) { next(error); }
+});
+
+app.post("/api/admin/surveys", requireAdministrator, async (req, res, next) => {
+  try {
+    const survey = await withTransaction(transactionQuery => createSurvey(transactionQuery, req.body, req.staff.username));
+    const surveys = await listSurveys(query);
+    res.status(201).json({ survey: surveys.find(item => item.id === survey.id) || survey, surveys });
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message, code: error.code });
+    next(error);
+  }
+});
+
+app.patch("/api/admin/surveys/:id", requireAdministrator, async (req, res, next) => {
+  try {
+    const surveyId = normalizeId(req.params.id);
+    const availability = await getAvailability(query);
+    if (availability.survey?.id === String(surveyId) && availability.state !== 'closed') return res.status(409).json({ error: 'Close this survey collection before changing its questionnaire settings.', code: 'SURVEY_WINDOW_ACTIVE' });
+    const survey = await updateSurvey(query, surveyId, req.body);
+    const surveys = await listSurveys(query);
+    res.json({ survey: surveys.find(item => item.id === survey.id) || survey, surveys });
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message, code: error.code });
+    next(error);
+  }
+});
+
+app.post("/api/admin/surveys/:id/publish", requireAdministrator, async (req, res, next) => {
+  try {
+    const surveyId = normalizeId(req.params.id);
+    const survey = await withTransaction(async transactionQuery => {
+      await lockControl(transactionQuery);
+      const availability = await getAvailability(transactionQuery);
+      if (availability.state !== 'closed') throw Object.assign(new Error('Close the current collection period before publishing another survey.'), { statusCode: 409, code: 'SURVEY_WINDOW_ACTIVE' });
+      const selected = await getSurvey(transactionQuery, surveyId);
+      const counts = await transactionQuery(`SELECT leadership_level AS "leadershipLevel",count(*)::integer AS count FROM survey_questions WHERE survey_id=$1 AND active=true GROUP BY leadership_level`, [surveyId]);
+      if ([...QUESTION_CATEGORIES.keys()].some(level => !counts.some(item => item.leadershipLevel === level && item.count > 0))) throw Object.assign(new Error('Add at least one active question to every leadership category before publishing this survey.'), { statusCode: 400, code: 'INCOMPLETE_QUESTIONNAIRE' });
+      await transactionQuery('UPDATE surveys SET published=false,updated_at=now() WHERE published=true');
+      await transactionQuery('UPDATE surveys SET published=true,updated_at=now() WHERE id=$1', [surveyId]);
+      await transactionQuery('UPDATE survey_control SET survey_id=$1,period_id=NULL,revision=revision+1 WHERE id=1', [surveyId]);
+      return { ...selected, published: true };
+    });
+    res.json({ survey, surveys: await listSurveys(query) });
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message, code: error.code });
+    next(error);
+  }
+});
+
 app.get("/api/admin/survey-window", requireAdministrator, async (_req, res, next) => {
   try { res.set("Cache-Control", "no-store").json(await getAvailability(query)); }
   catch (error) { next(error); }
@@ -178,32 +240,94 @@ app.post("/api/admin/survey-window", requireAdministrator, async (req, res, next
 
 app.get("/api/admin/survey-results", requireStaff, async (req, res, next) => {
   try {
+    const surveyId = normalizeId(req.query.surveyId);
     const filters = parseFilters(req.query);
+    const sections = await getQuestionSections(query, { surveyId });
     const rows = await query(
       `SELECT r.id,r.leadership_level AS "leadershipLevel",r.evaluator_level AS "evaluatorLevel",
               r.survey_version AS "surveyVersion",r.sex,r.age,r.work_experience AS "workExperience",
               r.responses,r.completed_at AS "completedAt"
        FROM leadership_assessment_responses r
-       WHERE r.survey_version IN ($1,$2,$3) ORDER BY r.completed_at DESC`,
-      [SURVEY_VERSION, PREVIOUS_SURVEY_VERSION, LEGACY_SURVEY_VERSION],
+       WHERE r.survey_id=$1 ORDER BY r.completed_at DESC`,
+      [surveyId],
     );
-    res.set("Cache-Control", "no-store").json(buildSurveyAnalytics(rows, filters));
+    res.set("Cache-Control", "no-store").json(buildSurveyAnalytics(rows, filters, sections));
   } catch (error) {
     if (error.statusCode === 400) return res.status(400).json({ error: error.message });
     next(error);
   }
 });
 
-app.get("/api/admin/survey-results.csv", requireStaff, async (_req, res, next) => {
+app.get("/api/admin/survey-results.csv", requireStaff, async (req, res, next) => {
   try {
+    const surveyId = normalizeId(req.query.surveyId);
+    const survey = await getSurvey(query, surveyId);
+    const sections = await getQuestionSections(query, { surveyId });
     const rows = await query(
       `SELECT id,survey_version,leadership_level,evaluator_level,
               sex,age,work_experience,completed_at,responses
-       FROM leadership_assessment_responses WHERE survey_version IN ($1,$2,$3) ORDER BY completed_at DESC`,
-      [SURVEY_VERSION, PREVIOUS_SURVEY_VERSION, LEGACY_SURVEY_VERSION],
+       FROM leadership_assessment_responses WHERE survey_id=$1 ORDER BY completed_at DESC`,
+      [surveyId],
     );
-    res.type("text/csv; charset=utf-8").attachment(`leadership-assessment-${new Date().toISOString().slice(0, 10)}.csv`).send(buildSurveyCsv(rows));
+    res.type("text/csv; charset=utf-8").attachment(`${survey.slug}-${new Date().toISOString().slice(0, 10)}.csv`).send(buildSurveyCsv(rows, sections));
   } catch (error) { next(error); }
+});
+
+app.get("/api/admin/questions", requireAdministrator, async (req, res, next) => {
+  try {
+    const surveyId = normalizeId(req.query.surveyId);
+    const sections = await getQuestionSections(query, { includeInactive: true, surveyId });
+    res.set("Cache-Control", "no-store").json({ sections });
+  } catch (error) { next(error); }
+});
+
+app.post("/api/admin/questions", requireAdministrator, async (req, res, next) => {
+  try {
+    const surveyId = normalizeId(req.body.surveyId);
+    await getSurvey(query, surveyId);
+    const code = clean(req.body.code, 20).toUpperCase();
+    const leadershipLevel = clean(req.body.leadershipLevel, 30);
+    const textEn = clean(req.body.textEn, 4000);
+    const textAm = clean(req.body.textAm, 4000);
+    const dimension = clean(req.body.dimension, 120) || null;
+    const sortOrder = Number(req.body.sortOrder);
+    if (!QUESTION_CODE_PATTERN.test(code)) return res.status(400).json({ error: "Use a unique questionnaire code such as HL24. It must begin with a letter and contain only capital letters, numbers or underscores." });
+    if (!QUESTION_CATEGORIES.has(leadershipLevel)) return res.status(400).json({ error: "Select a valid leadership category." });
+    if (!textEn || !textAm) return res.status(400).json({ error: "Enter both the English and Amharic question text." });
+    if (!Number.isInteger(sortOrder) || sortOrder < 0 || sortOrder > 9999) return res.status(400).json({ error: "Sort order must be a whole number from 0 to 9999." });
+    const rows = await query(
+      `INSERT INTO survey_questions(survey_id,code,leadership_level,text_en,text_am,dimension,sort_order,updated_by)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING code,text_en AS "textEn",text_am AS "textAm",dimension,leadership_level AS "leadershipLevel",sort_order AS "sortOrder",active,updated_at AS "updatedAt",updated_by AS "updatedBy"`,
+      [surveyId, code, leadershipLevel, textEn, textAm, dimension, sortOrder, req.staff.username],
+    );
+    res.status(201).json({ question: rows[0] });
+  } catch (error) {
+    if (error.code === "23505") return res.status(409).json({ error: "That questionnaire code already exists. Codes are permanent primary keys." });
+    next(error);
+  }
+});
+
+app.patch("/api/admin/questions/:code", requireAdministrator, async (req, res, next) => {
+  try {
+    const surveyId = normalizeId(req.body.surveyId);
+    const code = clean(req.params.code, 20).toUpperCase();
+    const textEn = clean(req.body.textEn, 4000);
+    const textAm = clean(req.body.textAm, 4000);
+    if (!QUESTION_CODE_PATTERN.test(code)) return res.status(400).json({ error: "Invalid questionnaire code." });
+    if (!textEn || !textAm) return res.status(400).json({ error: "Enter both the English and Amharic question text." });
+    const rows = await query(
+      `UPDATE survey_questions SET text_en=$2,text_am=$3,updated_at=now(),updated_by=$4
+       WHERE code=$1 AND survey_id=$5
+       RETURNING code,text_en AS "textEn",text_am AS "textAm",dimension,leadership_level AS "leadershipLevel",sort_order AS "sortOrder",active,updated_at AS "updatedAt",updated_by AS "updatedBy"`,
+      [code, textEn, textAm, req.staff.username, surveyId],
+    );
+    if (!rows.length) return res.status(404).json({ error: "Question not found." });
+    res.json({ question: rows[0] });
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    next(error);
+  }
 });
 
 app.get("/api/admin/users", requireAdministrator, async (_req, res, next) => {
@@ -226,7 +350,7 @@ app.post("/api/admin/sectors", requireAdministrator, async (req, res, next) => {
     const leadershipPosition = clean(req.body.leadershipPosition, 80);
     const code = sectorCode(`${leadershipPosition}_${nameEn}`);
     const sortOrder = Number.isInteger(Number(req.body.sortOrder)) ? Math.max(0, Math.min(9999, Number(req.body.sortOrder))) : 100;
-    if (!sectionsByLevel.has(leadershipLevel)) return res.status(400).json({ error: "Select a valid leadership level." });
+    if (!QUESTION_CATEGORIES.has(leadershipLevel)) return res.status(400).json({ error: "Select a valid leadership level." });
     if (!LEADERSHIP_POSITIONS[leadershipLevel]?.has(leadershipPosition)) return res.status(400).json({ error: "Select a leadership position that matches the leadership level." });
     if (nameEn.length < 2 || code.length < 2) return res.status(400).json({ error: "Enter a valid English sector or institution name." });
     const rows = await query(

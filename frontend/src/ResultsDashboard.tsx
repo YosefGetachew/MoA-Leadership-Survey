@@ -19,7 +19,7 @@ interface Results {
   recentResponses: { id: number; leadershipLevel: string; evaluatorLevel: string; sex: string; age: number | null; workExperience: number | null; answeredCount: number; naCount: number; completedAt: string }[];
 }
 const versions = [
-  { value: SURVEY_VERSION, label: 'Current · evaluator demographics + 69 questions' },
+  { value: SURVEY_VERSION, label: 'Current · administrator-managed questionnaire' },
   { value: 'leadership-all-levels-v3', label: 'Earlier · all-level questionnaire' },
   { value: 'leadership-reform-v2-2026-08-28', label: 'Earlier · single-level questionnaire' },
 ];
@@ -46,7 +46,7 @@ function Ranking({ items, empty }: { items: Item[]; empty: string }) {
   </li>)}</ol> : <p className="empty-state">{empty}</p>;
 }
 
-export default function ResultsDashboard() {
+export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: string; surveyName: string }) {
   const [filters, setFilters] = useState(defaults);
   const [applied, setApplied] = useState(new URLSearchParams(defaults).toString());
   const [revision, setRevision] = useState(0);
@@ -60,7 +60,7 @@ export default function ResultsDashboard() {
   useEffect(() => {
     const controller = new AbortController();
     setPending(true); setError('');
-    fetch(`/api/admin/survey-results?${applied}`, { credentials: 'include', signal: controller.signal })
+    fetch(`/api/admin/survey-results?surveyId=${encodeURIComponent(surveyId)}&${applied}`, { credentials: 'include', signal: controller.signal })
       .then(async response => {
         const body = await response.json();
         if (!response.ok) throw new Error(body.error || 'Unable to load assessment results.');
@@ -69,7 +69,7 @@ export default function ResultsDashboard() {
       .catch(error => { if (!controller.signal.aborted) setError(error instanceof Error ? error.message : 'Unable to load results.'); })
       .finally(() => { if (!controller.signal.aborted) setPending(false); });
     return () => controller.abort();
-  }, [applied, revision]);
+  }, [applied, revision, surveyId]);
   function apply(event: FormEvent) { event.preventDefault(); setApplied(new URLSearchParams(filters).toString()); setRevision(value => value + 1); }
   const results = state.query === applied && state.revision === revision ? state.data : null;
   const items = (results?.items || []).filter(item => (!itemLevel || item.leadershipLevel === itemLevel) && `${item.code} ${item.text}`.toLowerCase().includes(search.toLowerCase())).sort((a, b) => {
@@ -82,6 +82,7 @@ export default function ResultsDashboard() {
   const groups = results?.demographics.find(item => item.dimension === dimension)?.groups || [];
   const appliedFilters = new URLSearchParams(applied);
   return <div className="results-dashboard">
+    <div className="results-survey-heading"><span>Analysing survey</span><strong>{surveyName}</strong></div>
     <form className="analysis-filters" onSubmit={apply}>
       <label>Questionnaire version<select value={filters.version} onChange={event => setFilters({ ...filters, version: event.target.value })}>{versions.map(version => <option key={version.value} value={version.value}>{version.label}</option>)}</select></label>
       <label>Evaluator category<select value={filters.evaluatorLevel} onChange={event => setFilters({ ...filters, evaluatorLevel: event.target.value })}><option value="">All categories</option>{evaluatorLevels.map(level => <option key={level.value} value={level.value}>{level.title}</option>)}</select></label>
@@ -130,7 +131,7 @@ export default function ResultsDashboard() {
       </Panel>
       <details className="admin-panel analysis-methods"><summary>Definitions and limitations</summary><div>
         <p>Source: saved leadership_assessment_responses records. Every panel uses the selected questionnaire version, evaluator category; section-specific controls affect only their own table. Historical reform questions and registry fields are excluded.</p>
-        <p>Item and headline averages weight valid question ratings equally, so sections with more questions contribute more. Leadership comparison and demographic section means weight qualifying submissions equally. Qualifying section coverage is at least 12/23 Senior, 14/28 Middle, or 9/18 Lower ratings of 1–5.</p>
+        <p>Item and headline averages weight valid question ratings equally, so sections with more questions contribute more. Leadership comparison and demographic section means weight qualifying submissions equally. A section qualifies when at least half of its currently active questions have ratings of 1–5.</p>
         <p>Favorable = (4 + 5) / valid ratings; unfavorable = (1 + 2) / valid ratings; neutral = 3 / valid ratings. N/A = N/A / (valid + N/A). Distribution bars include N/A, so their segment widths have a different denominator from agreement percentages. SD is the sample standard deviation of valid ratings; it is not a confidence interval.</p>
         <p>Likert responses are ordinal. Means assume equal spacing and are descriptive summaries, shown alongside distributions and medians. No approved targets, sampling weights, invitation denominator, independent-person identifier or causal design are available. Five- and ten-submission display rules are safeguards, not guarantees of statistical reliability. Small differences and rankings should not be used alone for personnel decisions.</p>
         <p>All-time records by version (not affected by category filters): {results.availableVersions.map(version => `${versions.find(item => item.value === version.version)?.label}: ${version.count}`).join('; ')}.</p>

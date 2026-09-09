@@ -10,18 +10,22 @@ function windowState(record) {
     startsAt: iso(record.lastPeriod.startsAt), endsAt: iso(record.lastPeriod.endsAt),
     durationMinutes: Math.max(0, Math.round((new Date(record.lastPeriod.endsAt) - new Date(record.lastPeriod.startsAt)) / 60000)),
   } : null;
-  return { state, isOpen: state === 'open', period, lastPeriod, revision: record.revision, serverTime: iso(record.serverTime) };
+  const survey = record.surveyId ? { id: String(record.surveyId), nameEn: record.surveyNameEn, nameAm: record.surveyNameAm || '', slug: record.surveySlug, settings: record.surveySettings || {} } : null;
+  return { state, isOpen: state === 'open', period, lastPeriod, survey, revision: record.revision, serverTime: iso(record.serverTime) };
 }
 
 async function getAvailability(query) {
-  const rows = await query(`SELECT c.revision,p.id AS "periodId",p.starts_at AS "startsAt",p.ends_at AS "endsAt",p.closed_at AS "closedAt",
+  const rows = await query(`SELECT c.revision,c.survey_id AS "surveyId",s.name_en AS "surveyNameEn",s.name_am AS "surveyNameAm",s.slug AS "surveySlug",s.settings AS "surveySettings",
+    p.id AS "periodId",p.starts_at AS "startsAt",p.ends_at AS "endsAt",p.closed_at AS "closedAt",
     clock_timestamp() AS "serverTime",
     (SELECT json_build_object('startsAt',h.starts_at,'endsAt',LEAST(h.ends_at,COALESCE(h.closed_at,clock_timestamp())))
      FROM survey_periods h
-     WHERE h.starts_at < LEAST(h.ends_at,COALESCE(h.closed_at,clock_timestamp()))
+     WHERE h.survey_id=c.survey_id
+       AND h.starts_at < LEAST(h.ends_at,COALESCE(h.closed_at,clock_timestamp()))
        AND LEAST(h.ends_at,COALESCE(h.closed_at,h.ends_at)) <= clock_timestamp()
      ORDER BY LEAST(h.ends_at,COALESCE(h.closed_at,h.ends_at)) DESC,h.id DESC LIMIT 1) AS "lastPeriod"
-    FROM survey_control c LEFT JOIN survey_periods p ON p.id=c.period_id WHERE c.id=1`);
+    FROM survey_control c JOIN surveys s ON s.id=c.survey_id
+    LEFT JOIN survey_periods p ON p.id=c.period_id AND p.survey_id=c.survey_id WHERE c.id=1`);
   return windowState(rows[0]);
 }
 
@@ -50,7 +54,7 @@ async function changeWindow(query, body, username) {
     const start = Math.max(Date.parse(body.startsAt), Date.parse(current.serverTime));
     const end = Date.parse(body.endsAt);
     if (end <= start) fail(400, 'The end must be later than the start and the current time.');
-    const rows = await query('INSERT INTO survey_periods(starts_at,ends_at,created_by) VALUES($1,$2,$3) RETURNING id', [new Date(start).toISOString(), new Date(end).toISOString(), username]);
+    const rows = await query('INSERT INTO survey_periods(survey_id,starts_at,ends_at,created_by) VALUES($1,$2,$3,$4) RETURNING id', [Number(current.survey.id), new Date(start).toISOString(), new Date(end).toISOString(), username]);
     await query('UPDATE survey_control SET period_id=$1,revision=revision+1 WHERE id=1', [rows[0].id]);
   }
   return getAvailability(query);

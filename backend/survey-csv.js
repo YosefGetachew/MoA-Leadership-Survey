@@ -1,11 +1,8 @@
-const sections = require('../frontend/src/levelSurveyQuestions.json');
-
 const evaluatorLabels = {
   senior_leadership: 'Senior Leadership', middle_leadership: 'Middle Leadership',
   lower_leadership: 'Lower Leadership', expert: 'Expert',
 };
 const sexLabels = { male: 'Male', female: 'Female' };
-const coverageLabels = Object.fromEntries(sections.map(section => [section.level, section.title]));
 function csvCell(value) {
   let text = String(value ?? '');
   // Quoting alone does not prevent spreadsheet formula execution.
@@ -16,7 +13,8 @@ function rating(value) {
   if (value === 6) return 'N/A';
   return Number.isInteger(value) && value >= 1 && value <= 5 ? value : '';
 }
-function buildSurveyCsv(rows) {
+function buildSurveyCsv(rows, sections = []) {
+  const coverageLabels = Object.fromEntries(sections.map(section => [section.level, section.title]));
   const questions = sections.flatMap(section => section.questions.map((question, index) => ({
     code: question.code, header: `${section.title} ${index + 1} (${question.code})`,
   })));

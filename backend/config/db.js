@@ -1,6 +1,7 @@
 const { Pool } = require("pg");
 const { readFileSync } = require("node:fs");
 const path = require("node:path");
+const questionSeed = require("../../frontend/src/levelSurveyQuestions.json");
 
 const pool = new Pool(process.env.DATABASE_URL ? {
   connectionString: process.env.DATABASE_URL,
@@ -106,6 +107,54 @@ async function ensureSchema() {
       updated_at timestamptz NOT NULL DEFAULT now()
     );
 
+    CREATE TABLE IF NOT EXISTS surveys (
+      id bigserial PRIMARY KEY,
+      name_en text NOT NULL,
+      name_am text,
+      slug text NOT NULL UNIQUE,
+      settings jsonb NOT NULL DEFAULT '{}'::jsonb,
+      published boolean NOT NULL DEFAULT false,
+      archived boolean NOT NULL DEFAULT false,
+      created_by text,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
+    INSERT INTO surveys(id,name_en,name_am,slug,published,created_by)
+      VALUES(1,'Leadership Assessment Survey','የአመራር ምዘና ዳሰሳ','leadership-assessment',true,'system')
+      ON CONFLICT(id) DO NOTHING;
+    SELECT setval(pg_get_serial_sequence('surveys','id'),GREATEST(1,(SELECT max(id) FROM surveys)),true);
+    CREATE UNIQUE INDEX IF NOT EXISTS surveys_one_published_idx ON surveys(published) WHERE published=true;
+    ALTER TABLE surveys ADD COLUMN IF NOT EXISTS settings jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+    CREATE TABLE IF NOT EXISTS survey_questions (
+      survey_id bigint NOT NULL DEFAULT 1 REFERENCES surveys(id),
+      code text NOT NULL,
+      leadership_level text NOT NULL CHECK (leadership_level IN ('high_level','middle_level','lower_level')),
+      text_en text NOT NULL,
+      text_am text NOT NULL,
+      dimension text,
+      sort_order integer NOT NULL CHECK (sort_order >= 0),
+      active boolean NOT NULL DEFAULT true,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      updated_by text,
+      PRIMARY KEY(survey_id,code)
+    );
+    ALTER TABLE survey_questions ADD COLUMN IF NOT EXISTS survey_id bigint REFERENCES surveys(id);
+    UPDATE survey_questions SET survey_id=1 WHERE survey_id IS NULL;
+    ALTER TABLE survey_questions ALTER COLUMN survey_id SET DEFAULT 1;
+    ALTER TABLE survey_questions ALTER COLUMN survey_id SET NOT NULL;
+    DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='survey_questions'::regclass AND conname='survey_questions_pkey' AND pg_get_constraintdef(oid)='PRIMARY KEY (code)') THEN
+        ALTER TABLE survey_questions DROP CONSTRAINT survey_questions_pkey;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='survey_questions'::regclass AND contype='p') THEN
+        ALTER TABLE survey_questions ADD CONSTRAINT survey_questions_pkey PRIMARY KEY(survey_id,code);
+      END IF;
+    END $$;
+    CREATE INDEX IF NOT EXISTS survey_questions_category_order_idx
+      ON survey_questions(survey_id,leadership_level,active,sort_order,code);
+
     CREATE TABLE IF NOT EXISTS survey_sectors (
       id serial PRIMARY KEY,
       code text NOT NULL UNIQUE,
@@ -175,6 +224,11 @@ async function ensureSchema() {
     ALTER TABLE leadership_assessment_responses ADD COLUMN IF NOT EXISTS age integer CHECK (age BETWEEN 18 AND 100);
     ALTER TABLE leadership_assessment_responses ADD COLUMN IF NOT EXISTS work_experience integer CHECK (work_experience >= 0 AND work_experience <= age);
     ALTER TABLE leadership_assessment_responses ADD COLUMN IF NOT EXISTS assessment_targets jsonb NOT NULL DEFAULT '{}'::jsonb;
+    ALTER TABLE leadership_assessment_responses ADD COLUMN IF NOT EXISTS survey_id bigint REFERENCES surveys(id);
+    UPDATE leadership_assessment_responses SET survey_id=1 WHERE survey_id IS NULL;
+    ALTER TABLE leadership_assessment_responses ALTER COLUMN survey_id SET DEFAULT 1;
+    ALTER TABLE leadership_assessment_responses ALTER COLUMN survey_id SET NOT NULL;
+    CREATE INDEX IF NOT EXISTS leadership_assessment_survey_idx ON leadership_assessment_responses(survey_id,completed_at DESC);
     ALTER TABLE leadership_assessment_responses DROP CONSTRAINT IF EXISTS leadership_assessment_responses_leadership_level_check;
     ALTER TABLE leadership_assessment_responses ADD CONSTRAINT leadership_assessment_responses_leadership_level_check
       CHECK (leadership_level IN ('high_level','middle_level','lower_level','all_levels'));
@@ -195,6 +249,21 @@ async function ensureSchema() {
   `);
 
   await pool.query(readFileSync(path.join(__dirname, "..", "survey-window-schema.sql"), "utf8"));
+  const questionRows = questionSeed.flatMap(section => section.questions.map((question, index) => ({
+    code: question.code,
+    leadership_level: section.level,
+    text_en: question.text,
+    text_am: question.textAm,
+    dimension: question.dimension || null,
+    sort_order: (index + 1) * 10,
+  })));
+  await pool.query(
+    `INSERT INTO survey_questions(survey_id,code,leadership_level,text_en,text_am,dimension,sort_order)
+     SELECT 1,code,leadership_level,text_en,text_am,dimension,sort_order
+     FROM jsonb_to_recordset($1::jsonb) AS x(code text,leadership_level text,text_en text,text_am text,dimension text,sort_order integer)
+     ON CONFLICT(survey_id,code) DO NOTHING`,
+    [JSON.stringify(questionRows)],
+  );
   await pool.query(`UPDATE survey_sectors SET active=false,updated_at=now() WHERE created_by IS NULL`);
   const officialRows = Object.entries(registryByPosition).flatMap(([leadershipPosition, organizations]) =>
     organizations.map(([baseCode, nameEn, nameAm], index) => ({

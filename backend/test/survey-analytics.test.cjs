@@ -25,12 +25,12 @@ test('distributions exclude N/A, missing, malformed and out-of-range values from
 test('current version is isolated; historic reform and unknown keys never enter leadership metrics', () => {
   const current = row(); current.responses.UNKNOWN = 5; current.overallResponses = { OR01: 1 };
   const legacy = row(2, [5, 5, 5], { surveyVersion: LEGACY_SURVEY_VERSION, leadershipLevel: 'high_level' });
-  const results = buildSurveyAnalytics([current, legacy]);
+  const results = buildSurveyAnalytics([current, legacy], parseFilters(), sections);
   assert.equal(results.summary.totalResponses, 1);
   assert.equal(results.summary.averageScore, 2.86); // (23 + 28*3 + 18*5) / 69
   assert.equal(results.summary.validRatings, 69); assert.equal(results.items.length, 69);
   assert.equal(results.availableVersions.find(version => version.version === LEGACY_SURVEY_VERSION).count, 1);
-  const oldResults = buildSurveyAnalytics([current, legacy], parseFilters({ version: LEGACY_SURVEY_VERSION }));
+  const oldResults = buildSurveyAnalytics([current, legacy], parseFilters({ version: LEGACY_SURVEY_VERSION }), sections);
   assert.equal(oldResults.summary.totalResponses, 1); assert.equal(oldResults.summary.validRatings, 23);
   assert.equal(oldResults.levels[1].submissions, 0);
   assert.equal(oldResults.demographics[0].groups.find(group => group.label === 'expert').scoredSubmissions, 0);
@@ -39,10 +39,10 @@ test('current version is isolated; historic reform and unknown keys never enter 
 });
 
 test('group comparisons use equal-level respondent means and suppress small samples', () => {
-  const four = buildSurveyAnalytics(Array.from({ length: 4 }, (_, index) => row(index)));
+  const four = buildSurveyAnalytics(Array.from({ length: 4 }, (_, index) => row(index)), parseFilters(), sections);
   assert.equal(four.demographics[0].groups.find(group => group.label === 'expert').average, null);
   assert.equal(four.priorities.length, 0);
-  const five = buildSurveyAnalytics(Array.from({ length: 5 }, (_, index) => row(index)));
+  const five = buildSurveyAnalytics(Array.from({ length: 5 }, (_, index) => row(index)), parseFilters(), sections);
   const group = five.demographics[0].groups.find(group => group.label === 'expert');
   assert.equal(group.average, 3); assert.equal(group.scoredSubmissions, 5);
   assert.deepEqual(group.levels.map(level => level.average), [1, 3, 5]);
@@ -55,13 +55,13 @@ test('section coverage threshold, actual completeness and quality flags handle N
   sections[0].questions.slice(11).forEach(question => { partial.responses[question.code] = 6; });
   const allNa = row(2, [6, 6, 6]);
   const malformed = row(3, [4, 4, 4]); delete malformed.responses.HL01; malformed.responses.ML01 = '4';
-  const results = buildSurveyAnalytics([partial, allNa, malformed]);
+  const results = buildSurveyAnalytics([partial, allNa, malformed], parseFilters(), sections);
   assert.equal(results.levels[0].scoredSubmissions, 1); // 11/23 is too few; malformed has 22 valid
   assert.equal(results.quality.completeSubmissions, 2); assert.equal(results.summary.completeRate, 66.67);
   assert.equal(results.quality.expectedRatings, 207); assert.equal(results.quality.missingRatings, 1); assert.equal(results.quality.invalidRatings, 1);
   assert.equal(results.quality.allNaSubmissions, 1); assert.equal(results.quality.straightLineSubmissions, 1);
   partial.responses.HL12 = 1;
-  assert.equal(buildSurveyAnalytics([partial]).levels[0].scoredSubmissions, 1); // 12/23 qualifies
+  assert.equal(buildSurveyAnalytics([partial], parseFilters(), sections).levels[0].scoredSubmissions, 1); // 12/23 qualifies
 });
 
 test('Pearson pairs enforce sample and variance rules; direction is correct', () => {
@@ -71,17 +71,17 @@ test('Pearson pairs enforce sample and variance rules; direction is correct', ()
   assert.equal(correlation(increasing.map(([x, y]) => [x, -y])).r, -1);
   assert.match(correlation(increasing.map(([x]) => [x, 4])).reason, /no variation/);
   const records = Array.from({ length: 10 }, (_, index) => row(index, [index % 5 + 1, index % 5 + 1, 5 - index % 5]));
-  const results = buildSurveyAnalytics(records);
+  const results = buildSurveyAnalytics(records, parseFilters(), sections);
   assert.equal(results.correlations[0].n, 10); assert.equal(results.correlations[0].r, 1); assert.equal(results.correlations[1].r, -1);
 });
 
 test('UTC filters are inclusive, weeks start Monday, and date/category filters affect all analysis', () => {
   const records = [row(1, [1, 1, 1], { completedAt: '2026-08-30T23:59:59Z' }), row(2, [4, 4, 4], { completedAt: '2026-08-31T23:59:59Z' }), row(3, [5, 5, 5], { evaluatorLevel: 'senior_leadership' })];
-  const results = buildSurveyAnalytics(records, parseFilters({ from: '2026-08-31', to: '2026-08-31', evaluatorLevel: 'expert' }));
+  const results = buildSurveyAnalytics(records, parseFilters({ from: '2026-08-31', to: '2026-08-31', evaluatorLevel: 'expert' }), sections);
   assert.equal(results.summary.totalResponses, 1); assert.equal(results.summary.averageScore, 4);
   assert.equal(results.weekly.length, 1); assert.equal(results.weekly[0].week, '2026-08-31');
   assert.equal(results.weekly[0].submissions, 1); assert.equal(results.recentResponses[0].id, 2);
-  const all = buildSurveyAnalytics(records);
+  const all = buildSurveyAnalytics(records, parseFilters(), sections);
   assert.deepEqual(all.weekly.map(week => week.week), ['2026-08-24', '2026-08-31']);
   assert.equal(all.weekly.reduce((sum, week) => sum + week.submissions, 0), all.summary.totalResponses);
   assert.equal(all.levels.reduce((sum, level) => sum + level.valid + level.na + level.missing + level.invalid, 0), all.quality.expectedRatings);
@@ -89,10 +89,10 @@ test('UTC filters are inclusive, weeks start Monday, and date/category filters a
 });
 
 test('empty results and all-N/A do not manufacture zero averages or 100% response rates', () => {
-  const empty = buildSurveyAnalytics([]);
+  const empty = buildSurveyAnalytics([], parseFilters(), sections);
   assert.equal(empty.summary.averageScore, null); assert.equal(empty.summary.completeRate, null); assert.equal(empty.summary.naRate, null);
   assert.equal(empty.weekly.length, 0); assert.equal(empty.priorities.length, 0);
-  const results = buildSurveyAnalytics([row(1, [6, 6, 6])]);
+  const results = buildSurveyAnalytics([row(1, [6, 6, 6])], parseFilters(), sections);
   assert.equal(results.summary.naRate, 100); assert.equal(results.summary.averageScore, null);
   assert.equal(results.summary.favorableRate, null); assert.equal(results.summary.completeRate, 100);
   assert.equal(results.correlations[0].n, 0);

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { amharicLevels, amharicQuestions, amharicCopy } from '../src/amharic.ts';
+import { amharicLevels, amharicCopy } from '../src/amharic.ts';
 import { evaluatorLevels } from '../src/surveyFlow.ts';
 
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/final-word-questionnaire.json', import.meta.url), 'utf8'));
@@ -13,7 +13,7 @@ test('all 69 English and 69 Amharic statements match the supplied Word wording',
     assert.deepEqual(actual.questions.map((question: { code: string }) => question.code), source.questions.map(question => question.code));
     source.questions.forEach((question, index) => {
       assert.equal(actual.questions[index].text, question.text, `${question.code} English`);
-      assert.equal(amharicQuestions[question.code], question.textAm, `${question.code} Amharic`);
+      assert.equal(actual.questions[index].textAm, question.textAm, `${question.code} Amharic`);
     });
   });
 });

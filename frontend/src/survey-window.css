@@ -21,8 +21,9 @@
 .survey-period-dates small { color: #5d7365; font-size: 12px; }
 .survey-period-expanded > p { margin: 10px 0 0; color: #5d7365; font-size: 12px; line-height: 1.6; }
 @media (max-width: 650px) {
-  .survey-period-title { padding: 10px; gap: 8px; }
+  .survey-period-title { flex-wrap: wrap; padding: 10px; gap: 8px; }
   .survey-period-summary { display: grid; }
+  .survey-period-toggle { width: calc(100% - 27px); justify-content: flex-end; margin-left: 27px; }
   .survey-period-dates { grid-template-columns: 1fr; }
 }
 .window-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; padding: 18px 22px; border-bottom: 1px solid #e4ece7; }
@@ -72,13 +73,17 @@
 .window-setup-form fieldset { padding: 0; margin: 0 0 18px; border: 0; min-width: 0; }
 .window-setup-form legend { font-size: 15px; font-weight: 700; color: #254a37; padding: 0 0 12px; }
 .window-start-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.window-start-options label { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid #d5e1d9; border-radius: 10px; cursor: pointer; }
-.window-start-options label.selected { background: #f2f8f4; border-color: #559774; box-shadow: inset 0 0 0 1px #559774; }
-.window-start-options input { width: 17px; height: 17px; margin: 2px 0 0; flex-shrink: 0; accent-color: #26774d; }
+.window-start-choice { display: flex; align-items: center; gap: 11px; min-height: 70px; padding: 12px; color: inherit; border: 1px solid #d5e1d9; border-radius: 10px; background: white; cursor: pointer; text-align: left; }
+.window-start-choice:hover:not(:disabled) { border-color: #82aa94; background: #f8fbf9; }
+.window-start-choice.selected { background: #f2f8f4; border-color: #559774; box-shadow: inset 0 0 0 1px #559774; }
+.window-choice-mark { width: 39px; height: 39px; display: grid; place-items: center; flex: 0 0 auto; color: #285b42; border-radius: 9px; background: #e7f2ea; font-size: 10px; font-weight: 800; }
+.window-choice-mark.calendar svg { width: 20px; height: 20px; }
 .window-start-options strong, .window-start-options small { display: block; }
 .window-start-options strong { font-size: 14px; color: #274d39; }
 .window-start-options small { margin-top: 5px; font-size: 12px; }
 .window-form-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 18px; }
+.window-calendar-reveal { min-width: 0; animation: calendarReveal .16s ease-out; }
+@keyframes calendarReveal { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
 .window-field { min-width: 0; }
 .window-field label { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; font-size: 13px; font-weight: 650; margin-bottom: 8px; color: #345544; }
 .window-field label span { font-size: 11px; font-weight: 400; color: var(--muted); }

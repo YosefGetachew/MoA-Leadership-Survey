@@ -1,16 +1,14 @@
-import questionnaire from "./levelSurveyQuestions.json" with { type: "json" };
-import { amharicLevels } from "./amharic.ts";
 export type LeadershipLevel = 'high_level' | 'middle_level' | 'lower_level';
 export type EvaluatorLevel = 'senior_leadership' | 'middle_leadership' | 'lower_leadership' | 'expert';
 export type Answers = Record<string, number>;
-export interface MatrixQuestion { code: string; text: string; textAm?: string; dimension?: string }
-export interface SurveySection { level: LeadershipLevel; title: string; audience: string; questions: MatrixQuestion[] }
+export interface MatrixQuestion { code: string; text: string; textAm?: string; dimension?: string; sortOrder?: number; active?: boolean }
+export interface SurveySection { level: LeadershipLevel; title: string; titleAm?: string; audience: string; audienceAm?: string; questions: MatrixQuestion[] }
 export const SURVEY_VERSION = 'leadership-demographics-v4';
 export const DRAFT_KEY = 'leadership-demographics-draft-v4';
 export const evaluatorLevels: Array<{ value: EvaluatorLevel; title: string; titleAm: string; description: string; descriptionAm: string }> = [
-  { value: 'senior_leadership', title: 'Senior Leadership', titleAm: 'ከፍተኛ ደረጃ አመራር', description: questionnaire[0].audience, descriptionAm: amharicLevels.high_level.audience },
-  { value: 'middle_leadership', title: 'Middle Leadership', titleAm: 'መካከለኛ ደረጃ አመራር', description: questionnaire[1].audience, descriptionAm: amharicLevels.middle_level.audience },
-  { value: 'lower_leadership', title: 'Lower Leadership', titleAm: 'የታችኛው ደረጃ አመራር', description: questionnaire[2].audience, descriptionAm: amharicLevels.lower_level.audience },
+  { value: 'senior_leadership', title: 'Senior Leadership', titleAm: 'ከፍተኛ ደረጃ አመራር', description: 'Mministers, state ministers, directors general, commissioners, bureau heads and equivalent senior executives', descriptionAm: 'ሚኒስትር፣ ዴኤታዎች፣ ዳይሬክተሮች፣ ኮሚሽነሮች፣ የቢሮ ኃላፊዎች እና እኩያ የሆኑ ከፍተኛ ኃላፊዎች' },
+  { value: 'middle_leadership', title: 'Middle Leadership', titleAm: 'መካከለኛ ደረጃ አመራር', description: 'Lead executives, executives, advisors, and project coordinators', descriptionAm: 'መሪ ሥራ አስፈጻሚዎች፣ ሥራ አስፈጻሚዎች፣ አማካሪዎች እና የፕሮጀክት አስተባባሪዎች' },
+  { value: 'lower_leadership', title: 'Lower Leadership', titleAm: 'የታችኛው ደረጃ አመራር', description: 'Team leaders, Desk head', descriptionAm: 'የቡድን መሪዎች፣ የዴስክ ኃላፊዎች' },
   { value: 'expert', title: 'Expert', titleAm: 'ባለሙያ', description: 'Technical and professional staff without a leadership or supervisory role.', descriptionAm: 'የአመራር ወይም የቁጥጥር ኃላፊነት የሌላቸው የቴክኒክና ሙያዊ ሠራተኞች።' },
 ];
 

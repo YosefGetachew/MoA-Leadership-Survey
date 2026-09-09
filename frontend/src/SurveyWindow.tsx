@@ -3,9 +3,11 @@ import './survey-window.css';
 import { ethiopiaInput, planWindow } from './surveyWindowUi';
 import { calendarDates } from './surveyCalendar';
 import SurveyDateInput from './SurveyDateInput';
+import type { SurveySettingsDefinition } from './SurveyCatalog';
 
 export interface Availability {
   state: 'open' | 'closed' | 'scheduled'; isOpen: boolean; revision: number; serverTime: string;
+  survey: { id: string; nameEn: string; nameAm: string; slug: string; settings?: SurveySettingsDefinition } | null;
   period: { id: string; startsAt: string; endsAt: string; closedAt: string | null } | null;
   lastPeriod: { startsAt: string; endsAt: string; durationMinutes: number } | null;
 }
@@ -62,7 +64,7 @@ function WindowDate({ value, label }: { value: string; label: string }) {
   return <div className="window-date"><span>{label}</span><strong>{dates.ethiopian} <small>E.C.</small></strong><span className="window-gregorian-date">{dates.gregorian} G.C.</span><time dateTime={value}>{dates.time}<small>Ethiopia · UTC+3</small></time></div>;
 }
 
-export default function SurveyWindowAdmin() {
+export default function SurveyWindowAdmin({ surveyName }: { surveyName?: string }) {
   const [status, setStatus] = useState<Availability | null>(null);
   const [startMode, setStartMode] = useState<'now' | 'later'>('now');
   const [startsAt, setStartsAt] = useState(() => ethiopiaInput(new Date()));
@@ -119,6 +121,12 @@ export default function SurveyWindowAdmin() {
     }
     setEndsAt(ethiopiaInput(new Date(start.getTime() + days * 86400000))); setFieldError(null);
   }
+  function chooseScheduledStart() {
+    setStartMode('later');
+    if (new Date(startsAt + ':00+03:00').getTime() <= Date.now()) setStartsAt(ethiopiaInput(new Date(Date.now() + 3600000)));
+    setFieldError(null);
+    window.requestAnimationFrame(() => document.getElementById('window-start')?.focus());
+  }
   async function confirmChange() {
     if (!confirmation || busy) return;
     setBusy(true); setError(''); setNotice('');
@@ -137,7 +145,7 @@ export default function SurveyWindowAdmin() {
 
   return <section className="admin-panel survey-window-admin" aria-labelledby="survey-availability-title" aria-busy={busy}>
     <div className="window-heading">
-      <div className="window-heading-main"><span className="window-calendar-icon"><WindowIcon /></span><div><h2 id="survey-availability-title">Survey availability</h2><p>Manage when evaluators can take the survey.</p></div></div>
+      <div className="window-heading-main"><span className="window-calendar-icon"><WindowIcon /></span><div><h2 id="survey-availability-title">Survey availability</h2><p>Manage when evaluators can take {surveyName ? <strong>{surveyName}</strong> : 'the published survey'}.</p></div></div>
       <span className="window-timezone">E.C. + G.C. · UTC+3 · AM/PM</span>
     </div>
     <div className="window-controls">
@@ -152,9 +160,12 @@ export default function SurveyWindowAdmin() {
       </>}
 
       {status?.state === 'closed' && !confirmation && <form onSubmit={prepare} className="window-setup-form" noValidate>
-        <fieldset disabled={busy}><legend>When should the survey open?</legend><div className="window-start-options"><label className={startMode === 'now' ? 'selected' : ''}><input type="radio" name="window-start-mode" checked={startMode === 'now'} onChange={() => { setStartMode('now'); setFieldError(null); }} /><span><strong>Open now</strong><small>Start accepting responses once you confirm.</small></span></label><label className={startMode === 'later' ? 'selected' : ''}><input type="radio" name="window-start-mode" checked={startMode === 'later'} onChange={() => { setStartMode('later'); if (new Date(startsAt + ':00+03:00').getTime() <= Date.now()) setStartsAt(ethiopiaInput(new Date(Date.now() + 3600000))); setFieldError(null); }} /><span><strong>Schedule for later</strong><small>Choose a future opening date and time.</small></span></label></div></fieldset>
+        <fieldset disabled={busy}><legend>When should the survey open?</legend><div className="window-start-options">
+          <button type="button" className={`window-start-choice ${startMode === 'now' ? 'selected' : ''}`} aria-pressed={startMode === 'now'} onClick={() => { setStartMode('now'); setFieldError(null); }}><span className="window-choice-mark" aria-hidden="true">Now</span><span><strong>Open now</strong><small>Start accepting responses after confirmation.</small></span></button>
+          <button type="button" className={`window-start-choice ${startMode === 'later' ? 'selected' : ''}`} aria-pressed={startMode === 'later'} aria-expanded={startMode === 'later'} aria-controls="window-opening-calendar" onClick={chooseScheduledStart}><span className="window-choice-mark calendar" aria-hidden="true"><WindowIcon /></span><span><strong>Choose opening date</strong><small>Open the calendar and schedule a future time.</small></span></button>
+        </div></fieldset>
         <div className="window-form-fields">
-          {startMode === 'later' && <SurveyDateInput id="window-start" label="Opening date & time" value={startsAt} onChange={value => { setStartsAt(value); setFieldError(null); }} disabled={busy} error={fieldError?.field === 'start' ? fieldError.error : undefined} />}
+          {startMode === 'later' && <div id="window-opening-calendar" className="window-calendar-reveal"><SurveyDateInput id="window-start" label="Opening date & time" value={startsAt} onChange={value => { setStartsAt(value); setFieldError(null); }} disabled={busy} error={fieldError?.field === 'start' ? fieldError.error : undefined} /></div>}
           <SurveyDateInput id="window-end" label="Closing date & time" value={endsAt} onChange={value => { setEndsAt(value); setFieldError(null); }} disabled={busy} error={fieldError?.field === 'end' ? fieldError.error : undefined} />
         </div>
         <p id="window-date-help" className="window-date-help">Choose Ethiopian (E.C.) or Gregorian (G.C.) dates. Times use the 12-hour AM/PM clock in Ethiopia (UTC+3), not the traditional Ethiopian clock. Both calendars represent the same opening and closing times.</p>

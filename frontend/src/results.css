@@ -1,17 +1,20 @@
 .results-dashboard { min-width: 0; }
+.results-survey-heading { display: flex; align-items: baseline; gap: 10px; margin: 4px 0 13px; color: var(--muted); font-size: 12px; }
+.results-survey-heading strong { color: var(--green-950); font-size: 16px; }
 .analysis-filters, .analysis-local-controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: end; }
-.analysis-filters { padding: 20px; margin-bottom: 20px; border: 1px solid var(--line); border-radius: 14px; background: white; }
+.analysis-filters { padding: 20px; margin-bottom: 20px; border: 1px solid #d3e1d8; border-radius: 16px; background: linear-gradient(135deg, rgba(255,255,255,.98), #f4faf6); box-shadow: 0 10px 30px rgba(31,71,53,.055); }
 .analysis-filters label, .analysis-local-controls label { display: grid; gap: 7px; font-size: 13px; min-width: 130px; flex: 1; }
 .analysis-filters label:first-child { flex: 2; min-width: 240px; }
-.analysis-filters input, .analysis-filters select, .analysis-local-controls input, .analysis-local-controls select { width: 100%; min-width: 0; min-height: 44px; padding: 9px; border: 1px solid #b9cbbf; border-radius: 7px; background: white; color: var(--ink); }
+.analysis-filters input, .analysis-filters select, .analysis-local-controls input, .analysis-local-controls select { width: 100%; min-width: 0; min-height: 44px; padding: 9px 11px; border: 1px solid #b9cbbf; border-radius: 9px; background: white; color: var(--ink); transition: border-color .16s ease, box-shadow .16s ease; }
+.analysis-filters :is(input, select):focus, .analysis-local-controls :is(input, select):focus { border-color: var(--green-650); box-shadow: 0 0 0 3px rgba(35,130,82,.11); outline: none; }
 .analysis-scope, .analysis-footnote { font-size: 13px; line-height: 1.6; color: var(--muted); }
 .analysis-footnote { padding: 0 24px 16px; }
 .analysis-notice { border-left: 4px solid #b18731; background: #fff9e9; padding: 14px 18px; margin: 16px 0 22px; font-size: 13px; line-height: 1.6; color: #604d20; }
 .analysis-level-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; padding: 24px; }
-.analysis-level-grid article { min-width: 0; }
+.analysis-level-grid article { min-width: 0; padding: 18px; border: 1px solid #e0e9e3; border-radius: 13px; background: linear-gradient(145deg, #fff, #f8fbf9); }
 .analysis-level-grid h3 { margin: 0 0 10px; font-size: 17px; }
 .analysis-level-grid p { font-size: 13px; color: var(--muted); }
-.level-score { font-size: 30px; color: var(--green-950); }
+.level-score { display: inline-block; margin: 2px 0 6px; font-size: 30px; color: var(--green-950); }
 .level-score small { font-size: 14px; font-weight: normal; }
 .analysis-level-grid dl { display: grid; gap: 10px; font-size: 13px; }
 .analysis-level-grid dl > div { display: flex; justify-content: space-between; gap: 10px; }
@@ -37,6 +40,7 @@
 .analysis-scroll { max-height: 580px; overflow: auto; }
 .analysis-scroll th { position: sticky; top: 0; z-index: 1; }
 .quality-grid { margin: 0; padding: 24px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+.quality-grid > div { padding: 16px; border: 1px solid #e2eae5; border-radius: 12px; background: #fbfdfb; }
 .quality-grid dt { font-size: 14px; font-weight: 600; }
 .quality-grid dd { font-size: 26px; margin: 10px 0; color: var(--green-950); }
 .quality-grid small { display: block; color: var(--muted); line-height: 1.6; }
@@ -44,4 +48,4 @@
 .analysis-methods > div { padding: 0 24px 14px; font-size: 13px; line-height: 1.7; color: var(--muted); }
 .results-dashboard :is(input, select, button, summary):focus-visible { outline: 3px solid #42856b; outline-offset: 3px; }
 @media (max-width: 950px) { .analysis-two-column { grid-template-columns: 1fr; gap: 0; } .quality-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 650px) { .analysis-level-grid, .quality-grid { grid-template-columns: 1fr; } .analysis-filters label:first-child { min-width: 0; flex-basis: 100%; } .analysis-local-controls label { flex-basis: 100%; } .analysis-level-grid article + article { border-top: 1px solid var(--line); padding-top: 22px; } .analysis-ranking li { gap: 10px; } }
+@media (max-width: 650px) { .analysis-level-grid, .quality-grid { grid-template-columns: 1fr; } .analysis-filters label:first-child { min-width: 0; flex-basis: 100%; } .analysis-local-controls label { flex-basis: 100%; } .analysis-ranking li { gap: 10px; } }

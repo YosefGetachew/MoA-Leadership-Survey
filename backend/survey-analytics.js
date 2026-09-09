@@ -1,4 +1,3 @@
-const sections = require('../frontend/src/levelSurveyQuestions.json');
 const { SURVEY_VERSION, PREVIOUS_SURVEY_VERSION, LEGACY_SURVEY_VERSION, EVALUATOR_LEVELS } = require('./survey-validation');
 
 const versions = [SURVEY_VERSION, PREVIOUS_SURVEY_VERSION, LEGACY_SURVEY_VERSION];
@@ -9,7 +8,7 @@ const answered = value => valid(value) || value === 6;
 const mean = values => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
 const round = value => value === null ? null : Number(value.toFixed(2));
 const percent = (numerator, denominator) => denominator ? round(100 * numerator / denominator) : null;
-const codesFor = row => sections.filter(section => row.leadershipLevel === 'all_levels' || row.leadershipLevel === section.level).flatMap(section => section.questions.map(question => question.code));
+const codesFor = (row, sections) => sections.filter(section => row.leadershipLevel === 'all_levels' || row.leadershipLevel === section.level).flatMap(section => section.questions.map(question => question.code));
 const scoresFor = (row, codes) => codes.map(code => row.responses?.[code]);
 
 function parseFilters(query = {}) {
@@ -52,13 +51,13 @@ function correlation(pairs) {
   return { n: pairs.length, r: round(Math.max(-1, Math.min(1, xy / Math.sqrt(xx * yy)))), reason: null };
 }
 
-function buildSurveyAnalytics(allRows, filters = parseFilters()) {
+function buildSurveyAnalytics(allRows, filters = parseFilters(), sections = []) {
   const rows = allRows.filter(row => row.surveyVersion === filters.version
     && (!filters.evaluatorLevel || row.evaluatorLevel === filters.evaluatorLevel)
     && (!filters.from || new Date(row.completedAt).toISOString().slice(0, 10) >= filters.from)
     && (!filters.to || new Date(row.completedAt).toISOString().slice(0, 10) <= filters.to));
   const observations = rows.map(row => {
-    const values = scoresFor(row, codesFor(row));
+    const values = scoresFor(row, codesFor(row, sections));
     const levelMeans = sections.map(section => {
       if (row.leadershipLevel !== 'all_levels' && row.leadershipLevel !== section.level) return null;
       const ratings = scoresFor(row, section.questions.map(question => question.code)).filter(valid);
@@ -126,7 +125,7 @@ function buildSurveyAnalytics(allRows, filters = parseFilters()) {
     // Explicit projection keeps raw ratings and obsolete personal/registry fields out of this response.
     recentResponses: [...rows].sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt)).slice(0, 100).map(row => ({
       id: row.id, leadershipLevel: row.leadershipLevel, evaluatorLevel: row.evaluatorLevel, sex: row.sex, age: row.age, workExperience: row.workExperience,
-      answeredCount: scoresFor(row, codesFor(row)).filter(answered).length, naCount: scoresFor(row, codesFor(row)).filter(value => value === 6).length, completedAt: row.completedAt,
+      answeredCount: scoresFor(row, codesFor(row, sections)).filter(answered).length, naCount: scoresFor(row, codesFor(row, sections)).filter(value => value === 6).length, completedAt: row.completedAt,
     })),
   };
 }

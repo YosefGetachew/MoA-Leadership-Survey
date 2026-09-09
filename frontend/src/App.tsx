@@ -1,10 +1,12 @@
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import ResultsDashboard from "./ResultsDashboard";
+import QuestionManager from "./QuestionManager";
 import SurveyWindowAdmin, { PeriodInformation, windowCopy, type Availability } from "./SurveyWindow";
 import SurveyPeriodNotice from "./SurveyPeriodNotice";
+import SurveyCatalog, { type SurveyDefinition } from "./SurveyCatalog";
+import SurveySettings from "./SurveySettings";
 import { QRCodeSVG } from "qrcode.react";
-import surveySections from "./levelSurveyQuestions.json";
-import { amharicCopy, amharicLevels, amharicQuestions } from "./amharic";
+import { amharicCopy, amharicLevels } from "./amharic";
 import { buildSurveyPages, sectionTransition, DRAFT_KEY, emptyDemographics, demographicIssues, validDemographics, evaluatorLevels, sanitizeDraft, SURVEY_VERSION, type Answers, type Demographics, type EvaluatorLevel, type LeadershipLevel, type MatrixQuestion, type SurveySection } from "./surveyFlow";
 type Language = "en" | "am";
 
@@ -14,17 +16,22 @@ interface AdminSession {
   role?: string;
 }
 
-const sections = surveySections as SurveySection[];
+function AdminSectionIcon({ section }: { section: "questions" | "survey" | "settings" | "statistics" }) {
+  if (section === "questions") return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h10a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2Z" /><path d="M8.5 8h7M8.5 12h7M8.5 16h4" /></svg>;
+  if (section === "survey") return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" /><path d="M7.5 3v4M16.5 3v4M3.5 9.5h17" /><path d="m8 15 2 2 5-5" /></svg>;
+  if (section === "statistics") return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></svg>;
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.55v-.1A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.2 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H2.4V9.55h.1A1.7 1.7 0 0 0 4.2 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06L6.66 3.8l.06.06A1.7 1.7 0 0 0 8.6 4.2a1.7 1.7 0 0 0 1-.6A1.7 1.7 0 0 0 10 2.5v-.1h4.05v.1a1.7 1.7 0 0 0 .95 1.7 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 19.4 8.6a1.7 1.7 0 0 0 .6 1 1.7 1.7 0 0 0 1.1.4h.1v4.05h-.1a1.7 1.7 0 0 0-1.7.95Z" /></svg>;
+}
+
 const QUESTIONS_PER_PAGE = 5;
-const surveyPages = buildSurveyPages(sections, QUESTIONS_PER_PAGE);
 const englishCopy = {
   ministry: "Ministry of Agriculture", surveyName: "Leadership Assessment Survey", admin: "Admin",
   loading: "Loading the assessment…", unavailable: "The survey service is unavailable. Please confirm that the API is running.",
   finalTool: "Final questionnaire · Vf1", title: "Leadership Assessment Questionnaire",
   qrTitle: "Scan to open the survey", qrHelp: "Use a phone camera to access this questionnaire.",
   lead: "Assess Senior, Middle and Lower Leadership in the Ministry of Agriculture based on your direct experience. We do not collect your name, email or phone number.",
-  howTo: "How to answer", instructions: "All evaluators, from Senior Leadership to Expert level will complete the same assessment.\n\nSelect your own leadership level and enter your sex, age and work experience.\n\nYour evaluation starts with Senior Leadership, continues to Middle Level Leadership, and Lower Level Leadershipends finally ends with Lower Level Leadership. Complete each section before moving to the next.\n\nRate every statement from 1 to 5, or select N/A when you do not have sufficient information.",
-  chooseLevel: "What is your leadership level in the ministry?", statements: "statements", estimate: "69 statements · All three leadership levels",
+  howTo: "How to answer", instructions: "All evaluators, from Senior Leadership to Expert level, will complete the same assessment.\n\nSelect your own leadership level and enter your sex, age and work experience.\n\nYour evaluation starts with Senior Leadership, continues to Middle Level Leadership, and ends with Lower Level Leadership. Complete each section before moving to the next.\n\nRate every statement from 1 to 5, or select N/A when you do not have sufficient information.",
+  chooseLevel: "What is your leadership level in the ministry?", statements: "statements", estimate: "All three leadership levels",
   evaluatorLevelRequired: "Select your own leadership level in the ministry.",
   assessmentOrder: "Evaluator information → Senior Leadership → Middle Leadership → Lower Level Leadership → Expert",
   targetWarning: "Changing the leader or institution will clear answers for this leadership section only. Continue?",
@@ -50,6 +57,8 @@ const englishCopy = {
   stronglyDisagree: "Strongly disagree", disagree: "Disagree", neither: "Neither agree nor disagree", agree: "Agree", stronglyAgree: "Strongly agree",
   na: "N/A", naLong: "Not applicable / I do not have sufficient information",
   requiredPage: "Please answer every statement on this page. Select N/A when you do not have enough information.",
+  unansweredHere: "unanswered on this page", swipeScale: "On a small screen, swipe left or right to see every rating option.",
+  thisPage: "this page", total: "total", savedOnDevice: "Progress saved on this device",
   requiredAll: "Please answer every statement before submitting.", back: "Back", next: "Next", answered: "answered",
   clearSelections: "Clear choices", clearWarning: "Clear every choice selected on this page?",
   submit: "Submit assessment", submitting: "Submitting…", responseRecorded: "Response recorded",
@@ -96,15 +105,17 @@ function LanguageSwitch({ language, onChange }: { language: Language; onChange: 
 
 function Survey({ onAdmin }: { onAdmin: () => void }) {
   const [language, setLanguage] = useState<Language>(() => localStorage.getItem("moa-survey-language") === "am" ? "am" : "en");
-  const [draft] = useState(() => {
+  const [draft] = useState<Record<string, unknown> | null>(() => {
     try {
-      const raw = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
-      return { ...sanitizeDraft(raw, sections), periodId: typeof raw?.periodId === "string" ? raw.periodId : null };
-    } catch { return { ...sanitizeDraft(null, sections), periodId: null }; }
+      return JSON.parse(localStorage.getItem(DRAFT_KEY) || "null");
+    } catch { return null; }
   });
-  const [evaluatorLevel, setEvaluatorLevel] = useState<EvaluatorLevel | "">(draft.evaluatorLevel);
-  const [answers, setAnswers] = useState<Answers>(draft.answers);
-  const [demographics, setDemographics] = useState(draft.demographics);
+  const [sections, setSections] = useState<SurveySection[]>([]);
+  const [questionsLoading, setQuestionsLoading] = useState(true);
+  const [questionsError, setQuestionsError] = useState(false);
+  const [evaluatorLevel, setEvaluatorLevel] = useState<EvaluatorLevel | "">("");
+  const [answers, setAnswers] = useState<Answers>({});
+  const [demographics, setDemographics] = useState(emptyDemographics());
   const [touched, setTouched] = useState<Partial<Record<keyof Demographics, boolean>>>({});
   const [profileAttempted, setProfileAttempted] = useState(false);
   const profileIssues = demographicIssues(demographics);
@@ -118,18 +129,21 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
   const [availability, setAvailability] = useState<Availability | null>(null);
   const [availabilityError, setAvailabilityError] = useState(false);
   const [transition, setTransition] = useState<ReturnType<typeof sectionTransition>>(null);
-  const activePeriod = useRef<string | null>(draft.periodId);
+  const [missingQuestion, setMissingQuestion] = useState<string | null>(null);
+  const activePeriod = useRef<string | null>(typeof draft?.periodId === "string" ? draft.periodId : null);
   const initialized = useRef(false);
   const statusRequest = useRef(0);
   const matrixRegion = useRef<HTMLDivElement>(null);
   const progressBar = useRef<HTMLDivElement>(null);
+  const pageHeading = useRef<HTMLHeadingElement>(null);
   const t = language === "am" ? amharicCopy : englishCopy;
   const wt = windowCopy[language];
   const surveyAccessUrl = `${window.location.origin}${window.location.pathname}`;
   const scale = surveyScale(language);
-  const levelTitle = (item: SurveySection) => language === "am" ? amharicLevels[item.level].title : item.title;
-  const levelAudience = (item: SurveySection) => language === "am" ? amharicLevels[item.level].audience : item.audience;
-  const questionTranslation = (question: MatrixQuestion) => question.textAm || amharicQuestions[question.code] || "";
+  const levelTitle = (item: SurveySection) => language === "am" ? item.titleAm || amharicLevels[item.level].title : item.title;
+  const levelAudience = (item: SurveySection) => language === "am" ? item.audienceAm || amharicLevels[item.level].audience : item.audience;
+  const questionTranslation = (question: MatrixQuestion) => question.textAm || "";
+  const surveyPages = sections.length === 3 ? buildSurveyPages(sections, QUESTIONS_PER_PAGE) : [];
   const pageData = surveyPages[page];
   const section = sections.find(item => item.level === pageData?.level);
   const totalPages = surveyPages.length;
@@ -140,6 +154,46 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
   const pageAnsweredCount = pageQuestions.filter(question => answers[question.code]).length;
   const totalQuestionCount = sections.reduce<number>((sum, item) => sum + item.questions.length, 0);
   const progress = Math.round((answeredCount / totalQuestionCount) * 100);
+  const surveyDisplayName = language === "am" && availability?.survey?.nameAm ? availability.survey.nameAm : availability?.survey?.nameEn || t.surveyName;
+  const surveyLead = (language === "am" ? availability?.survey?.settings?.descriptionAm : availability?.survey?.settings?.descriptionEn) || t.lead;
+  const surveyInstructionsEn = availability?.survey?.settings?.instructionsEn || englishCopy.instructions;
+  const surveyInstructionsAm = availability?.survey?.settings?.instructionsAm || amharicCopy.instructions;
+  const hierarchyOrder = [
+    language === "am" ? "የገምጋሚው መረጃ" : "Evaluator information",
+    ...sections.map(levelTitle),
+    language === "am" ? "ባለሙያ" : "Expert",
+  ].join(" → ");
+  const transitionFrom = transition ? sections.find(item => item.level === transition.from) : undefined;
+  const transitionTo = transition?.to ? sections.find(item => item.level === transition.to) : undefined;
+  const transitionHeading = transitionFrom
+    ? language === "am"
+      ? `${levelTitle(transitionFrom)} ክፍልን አጠናቀዋል።`
+      : `You have completed the ${levelTitle(transitionFrom)} section.`
+    : "";
+  const transitionMessage = transitionTo
+    ? language === "am"
+      ? `አሁን ወደ ${levelTitle(transitionTo)} ለመቀጠል ዝግጁ ነዎት።`
+      : `You are now about to continue to ${levelTitle(transitionTo)}.`
+    : wt.finalNext;
+  const transitionButton = transitionTo
+    ? language === "am" ? `ወደ ${levelTitle(transitionTo)} ቀጥል` : `Continue to ${levelTitle(transitionTo)}`
+    : t.submit;
+
+  useEffect(() => {
+    let live = true;
+    api<{ sections: SurveySection[] }>("/api/survey/questions")
+      .then(payload => {
+        if (!live || payload.sections.length !== 3 || payload.sections.some(section => !section.questions.length)) throw new Error("The questionnaire is not configured.");
+        const restored = typeof draft?.periodId === "string" && draft.periodId === activePeriod.current ? sanitizeDraft(draft, payload.sections) : sanitizeDraft(null, payload.sections);
+        setSections(payload.sections);
+        setEvaluatorLevel(restored.evaluatorLevel);
+        setAnswers(restored.answers);
+        setDemographics(restored.demographics);
+      })
+      .catch(() => { if (live) setQuestionsError(true); })
+      .finally(() => { if (live) setQuestionsLoading(false); });
+    return () => { live = false; };
+  }, [draft]);
 
   useEffect(() => {
     const region = matrixRegion.current;
@@ -208,6 +262,11 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
   }, [transition]);
 
   useEffect(() => {
+    if (page >= 0 && !transition) pageHeading.current?.focus({ preventScroll: true });
+    setMissingQuestion(null);
+  }, [page, transition]);
+
+  useEffect(() => {
     localStorage.setItem("moa-survey-language", language);
     document.documentElement.lang = language;
   }, [language]);
@@ -231,8 +290,11 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
     const activeAnswers = answers;
     const missing = pageQuestions.find(question => !activeAnswers[question.code]);
     if (missing) {
-      setError(t.requiredPage);
+      const remaining = pageQuestions.length - pageAnsweredCount;
+      setMissingQuestion(missing.code);
+      setError(`${t.requiredPage} ${remaining} ${t.unansweredHere}.`);
       document.getElementById(`question-${missing.code}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      window.setTimeout(() => document.querySelector<HTMLInputElement>(`#question-${missing.code} input`)?.focus({ preventScroll: true }), 350);
       return false;
     }
     return true;
@@ -292,7 +354,7 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
       await api("/api/survey/responses", {
         method: "POST",
         body: JSON.stringify({
-          surveyVersion: SURVEY_VERSION, periodId: availability?.period?.id, evaluatorLevel,
+          surveyId: availability?.survey?.id, surveyVersion: SURVEY_VERSION, periodId: availability?.period?.id, evaluatorLevel,
           sex: demographics.sex, age: Number(demographics.age), workExperience: Number(demographics.workExperience), responses: answers,
         }),
       });
@@ -305,13 +367,13 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
     } finally { setSubmitting(false); }
   }
 
-  if (checking) return <div className="center-screen"><div className="spinner" /><p>{t.loading}</p></div>;
+  if (checking || questionsLoading) return <div className="center-screen"><div className="spinner" /><p>{t.loading}</p></div>;
 
-  if (!availability?.isOpen || availabilityError) return <main className="survey-shell">
+  if (!availability?.isOpen || availabilityError || questionsError) return <main className="survey-shell">
     <section className="survey-paused-card">
       <LanguageSwitch language={language} onChange={setLanguage} />
       <p className="eyebrow">{t.ministry}</p>
-      <h1>{availabilityError ? wt.unavailable : wt.closed}</h1>
+      <h1>{availabilityError || questionsError ? wt.unavailable : wt.closed}</h1>
       {!availabilityError && availability && <PeriodInformation availability={availability} language={language} />}
       <div className="transition-actions"><button className="primary-button" onClick={() => void refreshAvailability()}>{wt.retry}</button><button className="text-button" onClick={onAdmin}>{t.adminSignIn}</button></div>
     </section>
@@ -339,7 +401,7 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
     <div className="app-frame">
       <header className="topbar">
         <div className="brand-mark" aria-hidden="true">MoA</div>
-        <div className="brand-copy"><strong>{t.ministry}</strong><span>{t.surveyName}</span></div>
+        <div className="brand-copy"><strong>{t.ministry}</strong><span>{surveyDisplayName}</span></div>
         <div className="topbar-actions"><LanguageSwitch language={language} onChange={value => { setLanguage(value); setError(""); }} /><button className="admin-link" onClick={onAdmin}>{t.admin}</button></div>
       </header>
 
@@ -355,15 +417,15 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
         {transition ? <section className="section-transition" aria-labelledby="section-completed-heading">
           <div className="success-mark" aria-hidden="true">✓</div>
           <p className="eyebrow">{wt.sectionComplete}</p>
-          <h1 id="section-completed-heading" tabIndex={-1}>{transition.from === "high_level" ? wt.seniorDone : transition.from === "middle_level" ? wt.middleDone : wt.lowerDone}</h1>
-          <p>{transition.to === "middle_level" ? wt.middleNext : transition.to === "lower_level" ? wt.lowerNext : wt.finalNext}</p>
-          {transition.to && <div className="transition-audience">{levelAudience(sections.find(item => item.level === transition.to)!)}</div>}
+          <h1 id="section-completed-heading" tabIndex={-1}>{transitionHeading}</h1>
+          <p>{transitionMessage}</p>
+          {transitionTo && <div className="transition-audience">{levelAudience(transitionTo)}</div>}
           <p className="transition-hint">{wt.notSaved}</p>
           {error && <div className="error-banner" role="alert">{error}</div>}
           <div className="transition-actions"><button className="secondary-button" disabled={submitting} onClick={() => setTransition(null)}>{wt.review}</button><button className="primary-button" disabled={submitting} onClick={() => {
             if (!transition.to) { void submit(); return; }
             setTransition(null); setPage(current => current + 1); window.scrollTo(0, 0);
-          }}>{submitting ? t.submitting : transition.to === "middle_level" ? wt.middleContinue : transition.to === "lower_level" ? wt.lowerContinue : t.submit}</button></div>
+          }}>{submitting ? t.submitting : transitionButton}</button></div>
         </section> : page === -1 ? (
           <section className="intro-card">
             <aside className="survey-qr-card" aria-label={t.qrTitle}>
@@ -371,11 +433,14 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
               <div><strong>{t.qrTitle}</strong><p>{t.qrHelp}</p><small>{surveyAccessUrl}</small></div>
             </aside>
             <p className="eyebrow">{t.finalTool}</p>
-            <h1>{t.title}</h1>
-            <p className="lead">{t.lead}</p>
-            <section className="notice" aria-labelledby="answer-guide-title">
-              <h2 id="answer-guide-title" className="notice-title">{t.howTo}</h2>
-              <div className="instruction-paragraphs">{t.instructions.split("\n\n").map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div>
+            <h1>{surveyDisplayName}</h1>
+            <p className="lead">{surveyLead}</p>
+            <section className="notice bilingual-answer-guide" aria-labelledby="answer-guide-title">
+              <div className="answer-guide-heading"><span className="answer-guide-icon" aria-hidden="true">✓</span><div><h2 id="answer-guide-title" className="notice-title">How to answer <span lang="am">· አሞላል</span></h2><p>Read these short steps before you begin. <span lang="am">ከመጀመርዎ በፊት እነዚህን አጭር መመሪያዎች ያንብቡ።</span></p></div></div>
+              <div className="bilingual-instruction-grid">
+                <article lang="en" aria-label="Instructions in English"><ol>{surveyInstructionsEn.split("\n\n").filter(Boolean).map((paragraph, index) => <li key={index}>{paragraph}</li>)}</ol></article>
+                <article lang="am" aria-label="Instructions in Amharic"><ol>{surveyInstructionsAm.split("\n\n").filter(Boolean).map((paragraph, index) => <li key={index}>{paragraph}</li>)}</ol></article>
+              </div>
             </section>
             <fieldset className="level-picker">
               <legend>{t.chooseLevel} <span>*</span></legend>
@@ -388,15 +453,15 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
               ))}
             </fieldset>
             {error && <div className="error-banner" role="alert">{error}</div>}
-            <div className="intro-footer"><span>{t.estimate}</span><button className="primary-button" disabled={!evaluatorLevel} onClick={beginAssessment}>{t.begin}</button></div>
+            <div className="intro-footer"><span>{totalQuestionCount} {t.statements} · {t.estimate}</span><button className="primary-button" disabled={!evaluatorLevel} onClick={beginAssessment}>{t.begin}</button></div>
           </section>
         ) : pageData ? (
           <section className="questionnaire-card">
             <div className="page-heading">
-              <div><p className="eyebrow">{t.page} {page + 1} {t.of} {totalPages}</p><h1>{section ? levelTitle(section) : t.overallSection}</h1><p>{section ? levelAudience(section) : t.overallIntro}</p></div>
+              <div><p className="eyebrow">{t.page} {page + 1} {t.of} {totalPages}</p><h1 ref={pageHeading} tabIndex={-1}>{section ? levelTitle(section) : t.overallSection}</h1><p>{section ? levelAudience(section) : t.overallIntro}</p></div>
             </div>
 
-            <p className="assessment-order">{t.assessmentOrder}</p>
+            <p className="assessment-order">{hierarchyOrder}</p>
             {isDemographicsPage ? (
               <div className="demographics-fields">
                 <aside className="year-guidance"><strong>{t.roundingTitle}</strong><p>{t.roundingHelp}</p></aside>
@@ -420,7 +485,7 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
                   })}
                 </div>
               </div>
-            ) : <div key={page} ref={matrixRegion} className="matrix-scroll" role="region" aria-label={t.leadershipSection} tabIndex={0}>
+            ) : <><p className="matrix-swipe-hint">↔ {t.swipeScale}</p><div key={page} ref={matrixRegion} className="matrix-scroll" role="region" aria-label={t.leadershipSection} tabIndex={0}>
               <table className="survey-matrix">
                 <thead><tr><th scope="col">{t.statements}</th>{scale.map((option) => <th scope="col" key={option.value}><strong>{option.display}</strong><span>{option.short}</span></th>)}</tr></thead>
                 <tbody>
@@ -429,15 +494,15 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
                     const number = pageData.offset + index + 1;
                     const translation = questionTranslation(question);
                     return (
-                      <tr className={activeAnswers[question.code] ? "answered" : ""} id={`question-${question.code}`} key={question.code}>
+                      <tr className={`${activeAnswers[question.code] ? "answered" : ""} ${missingQuestion === question.code ? "needs-answer" : ""}`} id={`question-${question.code}`} key={question.code}>
                         <th scope="row"><span className="matrix-question-number">{number}.</span><span className="matrix-question-copy"><strong>{language === "am" ? translation : question.text}</strong>{translation && <small>{language === "am" ? question.text : translation}</small>}</span></th>
-                        {scale.map((option) => <td key={option.value}><label className={activeAnswers[question.code] === option.value ? "chosen" : ""} title={option.label}><input type="radio" name={question.code} value={option.value} checked={activeAnswers[question.code] === option.value} aria-label={`${option.display} - ${option.label}`} onChange={() => { setAnswers((current) => ({ ...current, [question.code]: option.value })); setError(""); }} /><span className="matrix-radio" /></label></td>)}
+                        {scale.map((option) => <td key={option.value}><label className={activeAnswers[question.code] === option.value ? "chosen" : ""} title={option.label}><input type="radio" name={question.code} value={option.value} checked={activeAnswers[question.code] === option.value} aria-label={`${option.display} - ${option.label}`} onChange={() => { setAnswers((current) => ({ ...current, [question.code]: option.value })); if (missingQuestion === question.code) setMissingQuestion(null); setError(""); }} /><span className="matrix-radio" /></label></td>)}
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
-            </div>}
+            </div></>}
 
             {error && <div className="error-banner" role="alert">{error}</div>}
             <div className="survey-actions">
@@ -445,7 +510,7 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
                 <button className="secondary-button" disabled={submitting} onClick={() => { setError(""); if (page === 0) setPage(-1); else setPage((current) => current - 1); window.scrollTo({ top: 0, behavior: "smooth" }); }}>{t.back}</button>
                 {!isDemographicsPage && <button className="text-button clear-button" type="button" disabled={submitting || !pageAnsweredCount} onClick={clearPageSelections}>{t.clearSelections}</button>}
               </div>
-              <span>{isDemographicsPage ? `${3 - Object.keys(profileIssues).length}/3 ${t.requiredDetails}` : `${answeredCount} ${t.of} ${totalQuestionCount} ${t.answered}`}</span>
+              <span className="survey-progress-copy">{isDemographicsPage ? `${3 - Object.keys(profileIssues).length}/3 ${t.requiredDetails}` : <><strong>{pageAnsweredCount}/{pageQuestions.length} {t.thisPage}</strong><small>✓ {t.savedOnDevice} · {answeredCount}/{totalQuestionCount} {t.total}</small></>}</span>
               <button className="primary-button" disabled={submitting} onClick={goNext}>{isDemographicsPage ? t.continueAssessment : t.next}</button>
             </div>
           </section>
@@ -458,10 +523,13 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
 
 function Admin({ onExit }: { onExit: () => void }) {
   const [session, setSession] = useState<AdminSession>({ authorized: false });
+  const [adminSection, setAdminSection] = useState<"questions" | "survey" | "settings" | "statistics">("survey");
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [surveys, setSurveys] = useState<SurveyDefinition[]>([]);
+  const [selectedSurveyId, setSelectedSurveyId] = useState("");
 
   useEffect(() => {
     api<AdminSession>("/api/admin/session")
@@ -469,6 +537,16 @@ function Admin({ onExit }: { onExit: () => void }) {
       .catch(() => setError("The administration service is unavailable."))
       .finally(() => setLoading(false));
   }, []);
+
+  const loadSurveys = useCallback(async () => {
+    try {
+      const payload = await api<{ surveys: SurveyDefinition[] }>("/api/admin/surveys");
+      setSurveys(payload.surveys);
+      setSelectedSurveyId(current => payload.surveys.some(survey => survey.id === current) ? current : payload.surveys.find(survey => survey.published)?.id || payload.surveys[0]?.id || "");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to load surveys."); }
+  }, []);
+
+  useEffect(() => { if (session.authorized) void loadSurveys(); }, [session.authorized, loadSurveys]);
 
   async function login(event: FormEvent) {
     event.preventDefault();
@@ -492,7 +570,7 @@ function Admin({ onExit }: { onExit: () => void }) {
       <main className="admin-login-shell">
         <form className="login-card" onSubmit={login}>
           <button type="button" className="back-link" onClick={onExit}>← Return to survey</button>
-          <div className="brand-mark large">MoA</div>
+          <div className="brand-mark large" aria-hidden="true">MoA</div>
           <p className="eyebrow">Restricted access</p>
           <h1>Survey administration</h1>
           <p>Sign in to review leadership questionnaire responses and evaluator information.</p>
@@ -505,13 +583,34 @@ function Admin({ onExit }: { onExit: () => void }) {
     );
   }
 
+  const adminSections = session.role === "admin" ? [
+    { value: "survey" as const, label: "1. Survey Admin", description: "Create, publish and schedule" },
+    { value: "settings" as const, label: "2. Settings", description: "Name, introduction and sections" },
+    { value: "questions" as const, label: "3. Questions", description: "Edit the questionnaire" },
+    { value: "statistics" as const, label: "4. Results", description: "Analyse and export responses" },
+  ] : [{ value: "statistics" as const, label: "Results", description: "Analyse and export responses" }];
+  const activeAdminSection = adminSections.some(item => item.value === adminSection) ? adminSection : "statistics";
+  const selectedSurvey = surveys.find(survey => survey.id === selectedSurveyId) || surveys[0];
+  const adminHeading = activeAdminSection === "questions" ? "Questionnaire management" : activeAdminSection === "survey" ? "Survey administration" : activeAdminSection === "settings" ? "Survey settings" : "Survey results";
+
   return (
     <div className="admin-app">
-      <header className="admin-header"><div><p className="eyebrow">Final questionnaire · Vf1</p><h1>Leadership assessment results</h1><p>Signed in as {session.displayName}</p></div><div className="admin-actions"><button className="secondary-button" onClick={onExit}>Open survey</button><a className="primary-button link-button" href="/api/admin/survey-results.csv">Export CSV</a><button className="text-button" onClick={logout}>Sign out</button></div></header>
+      <header className="admin-header">
+        <div className="admin-title-row"><div className="admin-brand-symbol" aria-hidden="true">MoA</div><div><p className="eyebrow">Ministry of Agriculture</p><h1>{adminHeading}</h1><p className="admin-session"><span aria-hidden="true" /> {session.displayName}</p></div></div>
+        <div className="admin-actions"><button className="secondary-button" onClick={onExit}>View public survey</button>{activeAdminSection === "statistics" && selectedSurvey && <a className="primary-button link-button" href={`/api/admin/survey-results.csv?surveyId=${encodeURIComponent(selectedSurvey.id)}`}>Download CSV</a>}<button className="text-button" onClick={logout}>Sign out</button></div>
+      </header>
       <main className="admin-main">
+        <nav className="admin-navigation" aria-label="Administration sections">
+          {adminSections.map(item => <button type="button" className={activeAdminSection === item.value ? "active" : ""} aria-current={activeAdminSection === item.value ? "page" : undefined} key={item.value} onClick={() => setAdminSection(item.value)}><span className="admin-nav-icon"><AdminSectionIcon section={item.value} /></span><span className="admin-nav-copy"><strong>{item.label}</strong><small>{item.description}</small></span></button>)}
+        </nav>
         {error && <div className="error-banner">{error}</div>}
-        {session.role === "admin" && <SurveyWindowAdmin />}
-        <ResultsDashboard />
+        {selectedSurvey && <SurveyCatalog surveys={surveys} selectedId={selectedSurvey.id} canManage={session.role === "admin" && activeAdminSection === "survey"} onSelect={setSelectedSurveyId} onChange={(next, selectedId) => { setSurveys(next); if (selectedId) setSelectedSurveyId(selectedId); }} />}
+        {!selectedSurvey && <p className="empty-state">Loading survey catalogue…</p>}
+        {session.role === "admin" && activeAdminSection === "survey" && selectedSurvey?.published && <SurveyWindowAdmin surveyName={selectedSurvey.nameEn} />}
+        {session.role === "admin" && activeAdminSection === "survey" && selectedSurvey && !selectedSurvey.published && <section className="admin-panel survey-draft-panel"><span>Draft survey</span><h2>Prepare this survey, then publish it</h2><p>First review its name and instructions, then check its questions. Publishing selects it for the public link but does not open collection.</p><div className="survey-draft-actions"><button className="secondary-button" onClick={() => setAdminSection("settings")}>1. Review settings</button><button className="secondary-button" onClick={() => setAdminSection("questions")}>2. Review questions</button></div></section>}
+        {session.role === "admin" && activeAdminSection === "questions" && selectedSurvey && <QuestionManager key={selectedSurvey.id} surveyId={selectedSurvey.id} surveyName={selectedSurvey.nameEn} surveySettings={selectedSurvey.settings} />}
+        {session.role === "admin" && activeAdminSection === "settings" && selectedSurvey && <SurveySettings key={selectedSurvey.id} survey={selectedSurvey} onChange={next => setSurveys(next)} />}
+        {activeAdminSection === "statistics" && selectedSurvey && <ResultsDashboard key={selectedSurvey.id} surveyId={selectedSurvey.id} surveyName={selectedSurvey.nameEn} />}
       </main>
     </div>
   );
