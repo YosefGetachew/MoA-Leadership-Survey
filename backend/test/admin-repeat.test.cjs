@@ -21,7 +21,7 @@ test('only authenticated admins can restart; public cookie, duplicates and closu
   const post = (path, body, cookie) => fetch(url + path, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: JSON.stringify(body) });
   const status = async cookie => (await fetch(url + '/api/survey/status', { headers: { Cookie: cookie } })).json();
   const restart = cookie => post('/api/survey/restart', { periodId: opened.period.id }, cookie);
-  const input = { periodId: opened.period.id, surveyVersion: SURVEY_VERSION, evaluatorLevel: 'expert', sex: 'male', age: 40, workExperience: 10, responses: Object.fromEntries(sections.flatMap(section => section.questions.map(question => [question.code, 4]))) };
+  const input = { periodId: opened.period.id, surveyVersion: SURVEY_VERSION, evaluatorLevel: 'expert', sex: 'male', age: 40, workExperience: 10, responses: Object.fromEntries(sections.flatMap(section => section.questions.map(question => [question.code, 4]))), openEndedResponses: { GQ1: 'Strength', GQ2: 'Barrier', GQ3: 'Reform action' } };
   assert.equal((await status(publicCookie)).canSubmitAnother, false);
   assert.equal((await status(`${publicCookie}; ${admin}`)).canSubmitAnother, true);
   assert.equal((await restart(`${publicCookie}; ${admin}`)).status, 409); // cannot abandon incomplete attempt

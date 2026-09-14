@@ -20,7 +20,7 @@ function validateScores(input, codes, message) {
   }));
 }
 
-function validateSubmission(input, questionCodes) {
+function validateSubmission(input, questionCodes, openQuestionCodes) {
   const body = record(input);
   if (body.surveyVersion !== SURVEY_VERSION) invalid('The survey has changed. Please refresh and complete the current questionnaire.');
   if (!EVALUATOR_LEVELS.includes(body.evaluatorLevel)) invalid('Select your leadership level in the ministry.');
@@ -30,10 +30,18 @@ function validateSubmission(input, questionCodes) {
   if (!Array.isArray(questionCodes) || !questionCodes.length) invalid('The questionnaire is not configured. Contact the survey administrator.');
   const responses = validateScores(body.responses, questionCodes, 'Please complete Senior, Middle and Lower Leadership before submitting.');
   const values = Object.values(responses);
+  const suppliedOpen = record(body.openEndedResponses);
+  const expectedOpenCodes = Array.isArray(openQuestionCodes) ? openQuestionCodes : Object.keys(suppliedOpen);
+  if (Object.keys(suppliedOpen).some(code => !expectedOpenCodes.includes(code))) invalid('The response contains unknown open-ended questions.');
+  const openEndedResponses = Object.fromEntries(expectedOpenCodes.map(code => {
+    const value = typeof suppliedOpen[code] === 'string' ? suppliedOpen[code].trim().slice(0, 4000) : '';
+    if (!value) invalid('Please answer every open-ended question before submitting.');
+    return [code, value];
+  }));
   // Name and contact fields are deliberately never copied into the normalized payload.
   return {
     evaluatorLevel: body.evaluatorLevel,
-    sex: body.sex, age: body.age, workExperience: body.workExperience, responses,
+    sex: body.sex, age: body.age, workExperience: body.workExperience, responses, openEndedResponses,
     answeredCount: values.length,
     naCount: values.filter(value => value === 6).length,
   };

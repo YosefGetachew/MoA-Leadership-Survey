@@ -61,7 +61,7 @@ test('HTTP admin-only controls, closed submission/restart gating, stale periods 
   const cookieFor = role => 'moa_reform_admin=' + createStaffSession({ username: role, role, displayName: role });
   const admin = cookieFor('admin'), viewer = cookieFor('viewer');
   const post = (path, body, cookie = '') => fetch(url + path, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie }, body: JSON.stringify(body) });
-  const input = { surveyVersion: SURVEY_VERSION, evaluatorLevel: 'expert', sex: 'male', age: 40, workExperience: 10, responses: Object.fromEntries(sections.flatMap(section => section.questions.map(question => [question.code, 4]))) };
+  const input = { surveyVersion: SURVEY_VERSION, evaluatorLevel: 'expert', sex: 'male', age: 40, workExperience: 10, responses: Object.fromEntries(sections.flatMap(section => section.questions.map(question => [question.code, 4]))), openEndedResponses: { GQ1: 'Strength', GQ2: 'Barrier', GQ3: 'Reform action' } };
   for (const cookie of ['', viewer]) {
     assert.equal((await post('/api/admin/survey-window', options, cookie)).status, 403);
     assert.equal((await fetch(url + '/api/admin/survey-window', { headers: { Cookie: cookie } })).status, 403);

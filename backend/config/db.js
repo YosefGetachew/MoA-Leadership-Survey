@@ -140,6 +140,9 @@ async function ensureSchema() {
       updated_by text,
       PRIMARY KEY(survey_id,code)
     );
+    ALTER TABLE survey_questions DROP CONSTRAINT IF EXISTS survey_questions_leadership_level_check;
+    ALTER TABLE survey_questions ADD CONSTRAINT survey_questions_leadership_level_check
+      CHECK (leadership_level IN ('high_level','middle_level','lower_level','open_ended'));
     ALTER TABLE survey_questions ADD COLUMN IF NOT EXISTS survey_id bigint REFERENCES surveys(id);
     UPDATE survey_questions SET survey_id=1 WHERE survey_id IS NULL;
     ALTER TABLE survey_questions ALTER COLUMN survey_id SET DEFAULT 1;
@@ -224,6 +227,7 @@ async function ensureSchema() {
     ALTER TABLE leadership_assessment_responses ADD COLUMN IF NOT EXISTS age integer CHECK (age BETWEEN 18 AND 100);
     ALTER TABLE leadership_assessment_responses ADD COLUMN IF NOT EXISTS work_experience integer CHECK (work_experience >= 0 AND work_experience <= age);
     ALTER TABLE leadership_assessment_responses ADD COLUMN IF NOT EXISTS assessment_targets jsonb NOT NULL DEFAULT '{}'::jsonb;
+    ALTER TABLE leadership_assessment_responses ADD COLUMN IF NOT EXISTS open_ended_responses jsonb NOT NULL DEFAULT '{}'::jsonb;
     ALTER TABLE leadership_assessment_responses ADD COLUMN IF NOT EXISTS survey_id bigint REFERENCES surveys(id);
     UPDATE leadership_assessment_responses SET survey_id=1 WHERE survey_id IS NULL;
     ALTER TABLE leadership_assessment_responses ALTER COLUMN survey_id SET DEFAULT 1;
@@ -263,6 +267,17 @@ async function ensureSchema() {
      FROM jsonb_to_recordset($1::jsonb) AS x(code text,leadership_level text,text_en text,text_am text,dimension text,sort_order integer)
      ON CONFLICT(survey_id,code) DO NOTHING`,
     [JSON.stringify(questionRows)],
+  );
+  await pool.query(
+    `INSERT INTO survey_questions(survey_id,code,leadership_level,text_en,text_am,dimension,sort_order)
+     SELECT s.id,code,'open_ended',text_en,text_am,'Qualitative feedback',sort_order
+     FROM surveys s CROSS JOIN jsonb_to_recordset($1::jsonb) AS x(code text,text_en text,text_am text,sort_order integer)
+     ON CONFLICT(survey_id,code) DO NOTHING`,
+    [JSON.stringify([
+      { code: 'GQ1', sort_order: 10, text_en: 'What is one thing that works particularly well in the Ministry of Agriculture?', text_am: 'በግብርና ሚኒስቴር ውስጥ በተለየ ሁኔታ በጥሩ ሁኔታ የሚሰራው አንድ ነገር ምንድን ነው?' },
+      { code: 'GQ2', sort_order: 20, text_en: 'What is the one leadership practice that most prevents you from performing your work effectively?', text_am: 'ሥራዎን ውጤታማ በሆነ መንገድ እንዳያከናውኑ በጣም የሚያግድዎት አንድ የአመራር ልምድ (አሰራር) ምንድን ነው?' },
+      { code: 'GQ3', sort_order: 30, text_en: 'What is one reform action that would most improve employee performance?', text_am: 'የሰራተኞችን አፈጻጸም የበለጠ የሚያሻሽለው አንድ የማሻሻያ (ሪፎርም) እርምጃ ምንድን ነው?' },
+    ])],
   );
   await pool.query(`UPDATE survey_sectors SET active=false,updated_at=now() WHERE created_by IS NULL`);
   const officialRows = Object.entries(registryByPosition).flatMap(([leadershipPosition, organizations]) =>

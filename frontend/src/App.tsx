@@ -7,7 +7,7 @@ import SurveyCatalog, { type SurveyDefinition } from "./SurveyCatalog";
 import SurveySettings from "./SurveySettings";
 import { QRCodeSVG } from "qrcode.react";
 import { amharicCopy, amharicLevels } from "./amharic";
-import { buildSurveyPages, sectionTransition, DRAFT_KEY, emptyDemographics, demographicIssues, validDemographics, evaluatorLevels, sanitizeDraft, SURVEY_VERSION, type Answers, type Demographics, type EvaluatorLevel, type LeadershipLevel, type MatrixQuestion, type SurveySection } from "./surveyFlow";
+import { buildSurveyPages, sectionTransition, DRAFT_KEY, emptyDemographics, demographicIssues, validDemographics, evaluatorLevels, sanitizeDraft, SURVEY_VERSION, type Answers, type OpenEndedAnswers, type Demographics, type EvaluatorLevel, type LeadershipLevel, type MatrixQuestion, type SurveySection } from "./surveyFlow";
 type Language = "en" | "am";
 
 interface AdminSession {
@@ -62,6 +62,7 @@ const englishCopy = {
   requiredAll: "Please answer every statement before submitting.", back: "Back", next: "Next", answered: "answered",
   clearSelections: "Clear choices", clearWarning: "Clear every choice selected on this page?",
   submit: "Submit assessment", submitting: "Submitting…", responseRecorded: "Response recorded",
+  openSection: "Part Three: Open-ended questions", openIntro: "Before submitting, briefly answer each question in your own words.", openRequired: "Please answer every open-ended question before submitting.", characters: "characters",
   thankYou: "Thank you for completing all three leadership assessments.", saved: "Your evaluator information and all three leadership sections have been saved together.",
   singleSubmission: "Your assessment has been submitted. Only one response is allowed for this survey period.",
   adminAnother: "Start another evaluation", adminRepeatHelp: "You are signed in as an administrator. You may start a new evaluation; the previous response remains saved.",
@@ -111,10 +112,12 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
     } catch { return null; }
   });
   const [sections, setSections] = useState<SurveySection[]>([]);
+  const [openQuestions, setOpenQuestions] = useState<MatrixQuestion[]>([]);
   const [questionsLoading, setQuestionsLoading] = useState(true);
   const [questionsError, setQuestionsError] = useState(false);
   const [evaluatorLevel, setEvaluatorLevel] = useState<EvaluatorLevel | "">("");
   const [answers, setAnswers] = useState<Answers>({});
+  const [openEndedAnswers, setOpenEndedAnswers] = useState<OpenEndedAnswers>({});
   const [demographics, setDemographics] = useState(emptyDemographics());
   const [touched, setTouched] = useState<Partial<Record<keyof Demographics, boolean>>>({});
   const [profileAttempted, setProfileAttempted] = useState(false);
@@ -143,17 +146,20 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
   const levelTitle = (item: SurveySection) => language === "am" ? item.titleAm || amharicLevels[item.level].title : item.title;
   const levelAudience = (item: SurveySection) => language === "am" ? item.audienceAm || amharicLevels[item.level].audience : item.audience;
   const questionTranslation = (question: MatrixQuestion) => question.textAm || "";
-  const surveyPages = sections.length === 3 ? buildSurveyPages(sections, QUESTIONS_PER_PAGE) : [];
+  const surveyPages = sections.length === 3 ? buildSurveyPages(sections, QUESTIONS_PER_PAGE, openQuestions) : [];
   const pageData = surveyPages[page];
   const section = sections.find(item => item.level === pageData?.level);
   const totalPages = surveyPages.length;
   const isDemographicsPage = pageData?.level === "demographics";
+  const isOpenEndedPage = pageData?.level === "open_ended";
   const pageQuestions = pageData?.questions || [];
   const leadershipAnswered = sections.flatMap(item => item.questions).filter(question => answers[question.code]).length;
-  const answeredCount = leadershipAnswered;
+  const openAnsweredCount = openQuestions.filter(question => openEndedAnswers[question.code]?.trim()).length;
+  const answeredCount = leadershipAnswered + openAnsweredCount;
   const pageAnsweredCount = pageQuestions.filter(question => answers[question.code]).length;
   const totalQuestionCount = sections.reduce<number>((sum, item) => sum + item.questions.length, 0);
-  const progress = Math.round((answeredCount / totalQuestionCount) * 100);
+  const totalItemCount = totalQuestionCount + openQuestions.length;
+  const progress = totalItemCount ? Math.round((answeredCount / totalItemCount) * 100) : 0;
   const surveyDisplayName = language === "am" && availability?.survey?.nameAm ? availability.survey.nameAm : availability?.survey?.nameEn || t.surveyName;
   const surveyLead = (language === "am" ? availability?.survey?.settings?.descriptionAm : availability?.survey?.settings?.descriptionEn) || t.lead;
   const surveyInstructionsEn = availability?.survey?.settings?.instructionsEn || englishCopy.instructions;
@@ -165,6 +171,7 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
   ].join(" → ");
   const transitionFrom = transition ? sections.find(item => item.level === transition.from) : undefined;
   const transitionTo = transition?.to ? sections.find(item => item.level === transition.to) : undefined;
+  const transitionToOpen = transition?.to === 'open_ended';
   const transitionHeading = transitionFrom
     ? language === "am"
       ? `${levelTitle(transitionFrom)} ክፍልን አጠናቀዋል።`
@@ -174,20 +181,25 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
     ? language === "am"
       ? `አሁን ወደ ${levelTitle(transitionTo)} ለመቀጠል ዝግጁ ነዎት።`
       : `You are now about to continue to ${levelTitle(transitionTo)}.`
-    : wt.finalNext;
+    : transitionToOpen
+      ? language === 'am' ? 'አሁን ከማስገባትዎ በፊት ሦስቱን ክፍት ጥያቄዎች ይመልሱ።' : 'Now answer the three open-ended questions before submitting your assessment.'
+      : wt.finalNext;
   const transitionButton = transitionTo
     ? language === "am" ? `ወደ ${levelTitle(transitionTo)} ቀጥል` : `Continue to ${levelTitle(transitionTo)}`
-    : t.submit;
+    : transitionToOpen ? language === 'am' ? 'ወደ ክፍት ጥያቄዎች ቀጥል' : 'Continue to open-ended questions' : t.submit;
 
   useEffect(() => {
     let live = true;
-    api<{ sections: SurveySection[] }>("/api/survey/questions")
+    api<{ sections: SurveySection[]; openQuestions?: MatrixQuestion[] }>("/api/survey/questions")
       .then(payload => {
         if (!live || payload.sections.length !== 3 || payload.sections.some(section => !section.questions.length)) throw new Error("The questionnaire is not configured.");
-        const restored = typeof draft?.periodId === "string" && draft.periodId === activePeriod.current ? sanitizeDraft(draft, payload.sections) : sanitizeDraft(null, payload.sections);
+        const qualitative = payload.openQuestions || [];
+        const restored = typeof draft?.periodId === "string" && draft.periodId === activePeriod.current ? sanitizeDraft(draft, payload.sections, qualitative) : sanitizeDraft(null, payload.sections, qualitative);
         setSections(payload.sections);
+        setOpenQuestions(qualitative);
         setEvaluatorLevel(restored.evaluatorLevel);
         setAnswers(restored.answers);
+        setOpenEndedAnswers(restored.openEndedAnswers);
         setDemographics(restored.demographics);
       })
       .catch(() => { if (live) setQuestionsError(true); })
@@ -227,7 +239,7 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
       setCanSubmitAnother(status.canSubmitAnother === true);
       const periodId = status.availability.period?.id || null;
       if (periodId && activePeriod.current !== periodId) {
-        setEvaluatorLevel(""); setAnswers({}); setDemographics(emptyDemographics());
+        setEvaluatorLevel(""); setAnswers({}); setOpenEndedAnswers({}); setDemographics(emptyDemographics());
         setTouched({}); setProfileAttempted(false); setPage(-1); setTransition(null); setError("");
         localStorage.removeItem(DRAFT_KEY);
         setSubmitted(status.submitted);
@@ -273,9 +285,9 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
 
   useEffect(() => {
     if (availability?.period && !submitted && (evaluatorLevel || Object.keys(answers).length)) {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ periodId: availability.period.id, evaluatorLevel, answers, demographics }));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ periodId: availability.period.id, evaluatorLevel, answers, openEndedAnswers, demographics }));
     }
-  }, [evaluatorLevel, answers, demographics, submitted, availability]);
+  }, [evaluatorLevel, answers, openEndedAnswers, demographics, submitted, availability]);
 
   function pageIsComplete() {
     if (isDemographicsPage) {
@@ -283,6 +295,16 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
         setProfileAttempted(true);
         const field = (["sex", "age", "workExperience"] as const).find(key => profileIssues[key]);
         if (field) document.getElementById("profile-" + field)?.focus();
+        return false;
+      }
+      return true;
+    }
+    if (isOpenEndedPage) {
+      const missing = pageQuestions.find(question => !openEndedAnswers[question.code]?.trim());
+      if (missing) {
+        setMissingQuestion(missing.code); setError(t.openRequired);
+        document.getElementById(`question-${missing.code}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        window.setTimeout(() => document.getElementById(`open-${missing.code}`)?.focus({ preventScroll: true }), 350);
         return false;
       }
       return true;
@@ -303,6 +325,7 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
   function goNext() {
     if (!pageIsComplete()) return;
     setError("");
+    if (page === totalPages - 1) { void submit(); return; }
     const boundary = sectionTransition(surveyPages, page);
     if (boundary) setTransition(boundary);
     else setPage(current => Math.min(current + 1, totalPages - 1));
@@ -325,7 +348,7 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
       await api('/api/survey/restart', { method: 'POST', body: JSON.stringify({ periodId: activePeriod.current }) });
       ++statusRequest.current;
       localStorage.removeItem(DRAFT_KEY);
-      setAnswers({}); setDemographics(emptyDemographics()); setEvaluatorLevel('');
+      setAnswers({}); setOpenEndedAnswers({}); setDemographics(emptyDemographics()); setEvaluatorLevel('');
       setTouched({}); setProfileAttempted(false); setTransition(null); setPage(-1); setSubmitted(false);
       window.scrollTo(0, 0);
     } catch (error) {
@@ -344,7 +367,7 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
 
   async function submit() {
     if (!pageIsComplete()) return;
-    if (!evaluatorLevel || !validDemographics(demographics) || answeredCount !== totalQuestionCount) {
+    if (!evaluatorLevel || !validDemographics(demographics) || leadershipAnswered !== totalQuestionCount || openAnsweredCount !== openQuestions.length) {
       setError(t.requiredAll);
       return;
     }
@@ -355,7 +378,7 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
         method: "POST",
         body: JSON.stringify({
           surveyId: availability?.survey?.id, surveyVersion: SURVEY_VERSION, periodId: availability?.period?.id, evaluatorLevel,
-          sex: demographics.sex, age: Number(demographics.age), workExperience: Number(demographics.workExperience), responses: answers,
+          sex: demographics.sex, age: Number(demographics.age), workExperience: Number(demographics.workExperience), responses: answers, openEndedResponses: openEndedAnswers,
         }),
       });
       localStorage.removeItem(DRAFT_KEY);
@@ -407,7 +430,7 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
 
       {page >= 0 && (
         <div ref={progressBar} className="progress-wrap" aria-label={`${progress}% ${t.complete}`}>
-          <div className="progress-meta"><span>{section ? levelTitle(section) : t.overallSection}</span><strong>{progress}% {t.complete}</strong></div>
+          <div className="progress-meta"><span>{isOpenEndedPage ? t.openSection : section ? levelTitle(section) : t.overallSection}</span><strong>{progress}% {t.complete}</strong></div>
           <div className="progress-track"><span style={{ width: `${progress}%` }} /></div>
         </div>
       )}
@@ -453,12 +476,12 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
               ))}
             </fieldset>
             {error && <div className="error-banner" role="alert">{error}</div>}
-            <div className="intro-footer"><span>{totalQuestionCount} {t.statements} · {t.estimate}</span><button className="primary-button" disabled={!evaluatorLevel} onClick={beginAssessment}>{t.begin}</button></div>
+            <div className="intro-footer"><span>{totalItemCount} {t.statements} · {t.estimate}</span><button className="primary-button" disabled={!evaluatorLevel} onClick={beginAssessment}>{t.begin}</button></div>
           </section>
         ) : pageData ? (
           <section className="questionnaire-card">
             <div className="page-heading">
-              <div><p className="eyebrow">{t.page} {page + 1} {t.of} {totalPages}</p><h1 ref={pageHeading} tabIndex={-1}>{section ? levelTitle(section) : t.overallSection}</h1><p>{section ? levelAudience(section) : t.overallIntro}</p></div>
+              <div><p className="eyebrow">{t.page} {page + 1} {t.of} {totalPages}</p><h1 ref={pageHeading} tabIndex={-1}>{isOpenEndedPage ? t.openSection : section ? levelTitle(section) : t.overallSection}</h1><p>{isOpenEndedPage ? t.openIntro : section ? levelAudience(section) : t.overallIntro}</p></div>
             </div>
 
             <p className="assessment-order">{hierarchyOrder}</p>
@@ -485,7 +508,19 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
                   })}
                 </div>
               </div>
-            ) : <><p className="matrix-swipe-hint">↔ {t.swipeScale}</p><div key={page} ref={matrixRegion} className="matrix-scroll" role="region" aria-label={t.leadershipSection} tabIndex={0}>
+            ) : isOpenEndedPage ? <div className="open-question-list">
+              {pageQuestions.map((question, index) => {
+                const value = openEndedAnswers[question.code] || '';
+                const translation = questionTranslation(question);
+                return <label id={`question-${question.code}`} className={`open-question-card ${missingQuestion === question.code ? 'needs-answer' : ''}`} key={question.code}>
+                  <span className="open-question-heading"><code>{question.code}</code><b>{index + 1}</b></span>
+                  <strong>{language === 'am' ? translation : question.text}</strong>
+                  {translation && <small lang={language === 'am' ? 'en' : 'am'}>{language === 'am' ? question.text : translation}</small>}
+                  <textarea id={`open-${question.code}`} rows={4} maxLength={4000} value={value} onChange={event => { setOpenEndedAnswers(current => ({ ...current, [question.code]: event.target.value })); if (missingQuestion === question.code) setMissingQuestion(null); setError(''); }} required />
+                  <em>{value.length}/4000 {t.characters}</em>
+                </label>;
+              })}
+            </div> : <><p className="matrix-swipe-hint">↔ {t.swipeScale}</p><div key={page} ref={matrixRegion} className="matrix-scroll" role="region" aria-label={t.leadershipSection} tabIndex={0}>
               <table className="survey-matrix">
                 <thead><tr><th scope="col">{t.statements}</th>{scale.map((option) => <th scope="col" key={option.value}><strong>{option.display}</strong><span>{option.short}</span></th>)}</tr></thead>
                 <tbody>
@@ -508,10 +543,10 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
             <div className="survey-actions">
               <div className="survey-action-left">
                 <button className="secondary-button" disabled={submitting} onClick={() => { setError(""); if (page === 0) setPage(-1); else setPage((current) => current - 1); window.scrollTo({ top: 0, behavior: "smooth" }); }}>{t.back}</button>
-                {!isDemographicsPage && <button className="text-button clear-button" type="button" disabled={submitting || !pageAnsweredCount} onClick={clearPageSelections}>{t.clearSelections}</button>}
+                {!isDemographicsPage && !isOpenEndedPage && <button className="text-button clear-button" type="button" disabled={submitting || !pageAnsweredCount} onClick={clearPageSelections}>{t.clearSelections}</button>}
               </div>
-              <span className="survey-progress-copy">{isDemographicsPage ? `${3 - Object.keys(profileIssues).length}/3 ${t.requiredDetails}` : <><strong>{pageAnsweredCount}/{pageQuestions.length} {t.thisPage}</strong><small>✓ {t.savedOnDevice} · {answeredCount}/{totalQuestionCount} {t.total}</small></>}</span>
-              <button className="primary-button" disabled={submitting} onClick={goNext}>{isDemographicsPage ? t.continueAssessment : t.next}</button>
+              <span className="survey-progress-copy">{isDemographicsPage ? `${3 - Object.keys(profileIssues).length}/3 ${t.requiredDetails}` : <><strong>{isOpenEndedPage ? openAnsweredCount : pageAnsweredCount}/{pageQuestions.length} {t.thisPage}</strong><small>✓ {t.savedOnDevice} · {answeredCount}/{totalItemCount} {t.total}</small></>}</span>
+              <button className="primary-button" disabled={submitting} onClick={goNext}>{submitting ? t.submitting : isDemographicsPage ? t.continueAssessment : page === totalPages - 1 ? t.submit : t.next}</button>
             </div>
           </section>
         ) : null}

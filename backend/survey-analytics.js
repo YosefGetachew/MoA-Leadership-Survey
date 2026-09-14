@@ -51,7 +51,7 @@ function correlation(pairs) {
   return { n: pairs.length, r: round(Math.max(-1, Math.min(1, xy / Math.sqrt(xx * yy)))), reason: null };
 }
 
-function buildSurveyAnalytics(allRows, filters = parseFilters(), sections = []) {
+function buildSurveyAnalytics(allRows, filters = parseFilters(), sections = [], openQuestions = []) {
   const rows = allRows.filter(row => row.surveyVersion === filters.version
     && (!filters.evaluatorLevel || row.evaluatorLevel === filters.evaluatorLevel)
     && (!filters.from || new Date(row.completedAt).toISOString().slice(0, 10) >= filters.from)
@@ -120,6 +120,11 @@ function buildSurveyAnalytics(allRows, filters = parseFilters(), sections = []) 
     summary: { totalResponses: rows.length, levelCounts: Object.fromEntries(levels.map(level => [level.level, level.submissions])), averageScore: overall.average,
       naRate: overall.naRate, completeRate: percent(complete, rows.length), favorableRate: overall.favorable, validRatings: overall.valid },
     levels, items, demographics, correlations, quality,
+    qualitative: openQuestions.map(question => ({
+      code: question.code, text: question.text, textAm: question.textAm,
+      responses: rows.map(row => ({ responseId: row.id, evaluatorLevel: row.evaluatorLevel, completedAt: row.completedAt, text: row.openEndedResponses?.[question.code] }))
+        .filter(response => typeof response.text === 'string' && response.text.trim()),
+    })),
     priorities: ranked.slice(0, 5), strengths: [...ranked].sort((a, b) => b.average - a.average || a.code.localeCompare(b.code)).slice(0, 5),
     weekly: [...weekly.values()].sort((a, b) => a.week.localeCompare(b.week)).map(bucket => ({ week: bucket.week, submissions: bucket.submissions, ...distribution(bucket.values) })),
     // Explicit projection keeps raw ratings and obsolete personal/registry fields out of this response.

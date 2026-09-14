@@ -49,3 +49,15 @@
 .results-dashboard :is(input, select, button, summary):focus-visible { outline: 3px solid #42856b; outline-offset: 3px; }
 @media (max-width: 950px) { .analysis-two-column { grid-template-columns: 1fr; gap: 0; } .quality-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 650px) { .analysis-level-grid, .quality-grid { grid-template-columns: 1fr; } .analysis-filters label:first-child { min-width: 0; flex-basis: 100%; } .analysis-local-controls label { flex-basis: 100%; } .analysis-ranking li { gap: 10px; } }
+.qualitative-results { display: grid; gap: 18px; padding: 20px; }
+.qualitative-results > article { border: 1px solid #d8e4dd; border-radius: 12px; overflow: hidden; background: #fff; }
+.qualitative-results header { display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: start; padding: 16px 18px; background: #f3f8f5; }
+.qualitative-results header code { color: #08764e; font-weight: 800; }
+.qualitative-results header h3 { margin: 0 0 5px; font-size: 1rem; }
+.qualitative-results header p { margin: 0; color: #5c7068; }
+.qualitative-results header span { white-space: nowrap; color: #567166; font-size: .82rem; }
+.qualitative-results ul { list-style: none; margin: 0; padding: 0; }
+.qualitative-results li { padding: 15px 18px; border-top: 1px solid #e3ebe6; }
+.qualitative-results li p { margin: 0 0 7px; white-space: pre-wrap; }
+.qualitative-results li small { color: #6b7e76; }
+@media (max-width: 720px) { .qualitative-results header { grid-template-columns: auto 1fr; } .qualitative-results header span { grid-column: 2; } }

@@ -8,6 +8,7 @@ const payload = () => ({
   surveyVersion: SURVEY_VERSION, evaluatorLevel: 'expert',
   sex: "female", age: 35, workExperience: 10,
   responses: Object.fromEntries(sections.flatMap(section => section.questions.map(question => [question.code,4]))),
+  openEndedResponses: { GQ1: 'Strength', GQ2: 'Barrier', GQ3: 'Reform action' },
 });
 
 test('all four respondent categories must submit the same 69 statements', () => {
@@ -27,6 +28,8 @@ test('reject incomplete sections, demographics, invalid respondent categories an
   for (const field of ['sex', 'age', 'workExperience']) { const input=payload(); delete input[field]; assert.throws(()=>validateSubmission(input, codes)); }
   for (const level of ['', 'high_level', 'invalid']) assert.throws(()=>validateSubmission({...payload(),evaluatorLevel:level}, codes), /your leadership level/);
   assert.throws(()=>validateSubmission({...payload(),surveyVersion:'old'}, codes), /survey has changed/);
+  const incompleteOpen = payload(); incompleteOpen.openEndedResponses.GQ2 = '';
+  assert.throws(()=>validateSubmission(incompleteOpen, codes, ['GQ1','GQ2','GQ3']), /open-ended question/);
 });
 test('strict ratings, valid N/A, no targets or work information persisted', () => {
   for (const value of [0,7,1.5,null,true,'4']) {
@@ -121,15 +124,17 @@ test('HTTP validation, single atomic write, duplicate protection, admin totals a
   assert.equal((await fetch(url+'/api/admin/questions',{method:'POST',headers:{Cookie:adminCookie,'Content-Type':'application/json'},body:JSON.stringify({code:'HL99',leadershipLevel:'high_level',textEn:'Duplicate',textAm:'ድጋሚ',sortOrder:999,active:true})})).status,409);
   const withNewQuestion=await (await fetch(url+'/api/survey/questions')).json();
   assert.equal(withNewQuestion.sections.flatMap(section=>section.questions).length,70);
+  assert.deepEqual(withNewQuestion.openQuestions.map(question=>question.code),['GQ1','GQ2','GQ3']);
 
   const catalogue=await (await fetch(url+'/api/admin/surveys',{headers:{Cookie:adminCookie}})).json();
   assert.equal(catalogue.surveys.length,1);assert.equal(catalogue.surveys[0].published,true);
   const createdResponse=await fetch(url+'/api/admin/surveys',{method:'POST',headers:{Cookie:adminCookie,'Content-Type':'application/json'},body:JSON.stringify({nameEn:'Second Named Survey',nameAm:'ሁለተኛ ዳሰሳ',copyQuestionsFromId:'1'})});
   assert.equal(createdResponse.status,201);
   const created=(await createdResponse.json()).survey;
-  assert.equal(created.nameEn,'Second Named Survey');assert.equal(created.published,false);assert.equal(created.questionCount,70);
+  assert.equal(created.nameEn,'Second Named Survey');assert.equal(created.published,false);assert.equal(created.questionCount,73);
   const copied=await (await fetch(url+`/api/admin/questions?surveyId=${created.id}`,{headers:{Cookie:adminCookie}})).json();
   assert.equal(copied.sections.flatMap(section=>section.questions).length,70);
+  assert.equal(copied.openQuestions.length,3);
   const changedCopy=await fetch(url+'/api/admin/questions/HL01',{method:'PATCH',headers:{Cookie:adminCookie,'Content-Type':'application/json'},body:JSON.stringify({surveyId:created.id,leadershipLevel:'high_level',textEn:'Second survey wording',textAm:'የሁለተኛው ዳሰሳ ጥያቄ',dimension:'Vision',sortOrder:10,active:true})});
   assert.equal(changedCopy.status,200);
   assert.equal((await (await fetch(url+'/api/survey/questions')).json()).sections[0].questions[0].text,'Edited English wording');

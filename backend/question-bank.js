@@ -41,8 +41,19 @@ async function getQuestionSections(query, { includeInactive = false, surveyId = 
   return rowsToSections(rows, survey?.settings);
 }
 
+async function getOpenEndedQuestions(query, { includeInactive = false, surveyId = 1 } = {}) {
+  return query(
+    `SELECT code,text_en AS text,text_am AS "textAm",dimension,sort_order AS "sortOrder",active,
+            updated_at AS "updatedAt",updated_by AS "updatedBy"
+     FROM survey_questions
+     WHERE survey_id=$1 AND leadership_level='open_ended' ${includeInactive ? '' : 'AND active=true'}
+     ORDER BY sort_order,code`,
+    [surveyId],
+  );
+}
+
 function questionCodes(sections) {
   return sections.flatMap(section => section.questions.filter(question => question.active !== false).map(question => question.code));
 }
 
-module.exports = { QUESTION_CATEGORIES, QUESTION_CODE_PATTERN, getQuestionSections, questionCodes, rowsToSections };
+module.exports = { QUESTION_CATEGORIES, QUESTION_CODE_PATTERN, getQuestionSections, getOpenEndedQuestions, questionCodes, rowsToSections };

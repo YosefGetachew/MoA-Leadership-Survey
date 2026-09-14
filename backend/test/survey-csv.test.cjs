@@ -35,3 +35,15 @@ test('empty exports have headers, and quoting prevents formula evaluation', () =
   const [, values] = parse(buildSurveyCsv([{...row, survey_version:'=test,"quoted"'}], sections));
   assert.equal(values[1], '\'=test,"quoted"');
 });
+test('open-ended answers are exported in dedicated GQ columns', () => {
+  const openQuestions = [
+    { code: 'GQ1', text: 'What works well?' },
+    { code: 'GQ2', text: 'What is the barrier?' },
+    { code: 'GQ3', text: 'What reform action is needed?' },
+  ];
+  const csv = buildSurveyCsv([{ ...row, open_ended_responses: { GQ1: 'Teamwork', GQ2: 'Slow decisions', GQ3: 'Delegate authority' } }], sections, openQuestions);
+  const [headers, values] = parse(csv);
+  assert.equal(headers.length, 80); assert.equal(values.length, 80);
+  assert.deepEqual(headers.slice(-3), ['GQ1 - What works well?', 'GQ2 - What is the barrier?', 'GQ3 - What reform action is needed?']);
+  assert.deepEqual(values.slice(-3), ['Teamwork', 'Slow decisions', 'Delegate authority']);
+});

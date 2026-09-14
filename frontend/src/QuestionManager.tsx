@@ -2,6 +2,8 @@ import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } fro
 import type { LeadershipLevel, SurveySection } from './surveyFlow';
 import type { SurveySettingsDefinition } from './SurveyCatalog';
 
+type QuestionCategory = LeadershipLevel | 'open_ended';
+
 interface ManagedQuestion {
   code: string;
   text: string;
@@ -9,15 +11,16 @@ interface ManagedQuestion {
   dimension?: string;
   sortOrder: number;
   active: boolean;
-  leadershipLevel: LeadershipLevel;
+  leadershipLevel: QuestionCategory;
 }
 
-const defaultCategories: Array<{ value: LeadershipLevel; label: string }> = [
+const defaultCategories: Array<{ value: QuestionCategory; label: string }> = [
   { value: 'high_level', label: 'Senior Leadership' },
   { value: 'middle_level', label: 'Middle Leadership' },
   { value: 'lower_level', label: 'Lower Leadership' },
+  { value: 'open_ended', label: 'Open-ended questions' },
 ];
-const emptyForm = (leadershipLevel: LeadershipLevel, sortOrder = 10) => ({ code: '', leadershipLevel, textEn: '', textAm: '', dimension: '', sortOrder, active: true });
+const emptyForm = (leadershipLevel: QuestionCategory, sortOrder = 10) => ({ code: '', leadershipLevel, textEn: '', textAm: '', dimension: '', sortOrder, active: true });
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, { credentials: 'include', ...options, headers: { 'Content-Type': 'application/json', ...options?.headers } });
@@ -27,9 +30,9 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export default function QuestionManager({ surveyId, surveyName, surveySettings }: { surveyId: string; surveyName: string; surveySettings: SurveySettingsDefinition }) {
-  const categories = defaultCategories.map(item => ({ ...item, label: surveySettings.categories[item.value]?.titleEn || item.label }));
+  const categories = defaultCategories.map(item => ({ ...item, label: item.value === 'open_ended' ? item.label : surveySettings.categories[item.value]?.titleEn || item.label }));
   const [questions, setQuestions] = useState<ManagedQuestion[]>([]);
-  const [category, setCategory] = useState<LeadershipLevel>('high_level');
+  const [category, setCategory] = useState<QuestionCategory>('high_level');
   const [search, setSearch] = useState('');
   const [editingCode, setEditingCode] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -44,14 +47,14 @@ export default function QuestionManager({ surveyId, surveyName, surveySettings }
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const payload = await request<{ sections: SurveySection[] }>(`/api/admin/questions?surveyId=${encodeURIComponent(surveyId)}`);
-      setQuestions(payload.sections.flatMap(section => section.questions.map(question => ({
+      const payload = await request<{ sections: SurveySection[]; openQuestions?: Array<Omit<ManagedQuestion, 'leadershipLevel'>> }>(`/api/admin/questions?surveyId=${encodeURIComponent(surveyId)}`);
+      setQuestions([...payload.sections.flatMap(section => section.questions.map(question => ({
         ...question,
         textAm: question.textAm || '',
         sortOrder: question.sortOrder || 0,
         active: question.active !== false,
         leadershipLevel: section.level,
-      }))));
+      }))), ...(payload.openQuestions || []).map(question => ({ ...question, textAm: question.textAm || '', sortOrder: question.sortOrder || 0, active: question.active !== false, leadershipLevel: 'open_ended' as const }))]);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to load questions.'); }
     finally { setLoading(false); }
   }, [surveyId]);
@@ -127,7 +130,7 @@ export default function QuestionManager({ surveyId, surveyName, surveySettings }
           <div className="question-editor-title"><div><p className="eyebrow">Question editor</p><h3 id="question-editor-title">{editingCode ? `Edit ${editingCode}` : 'Add a new question'}</h3><p>{editingCode ? 'Update the bilingual wording or question details below.' : 'The questionnaire code becomes the database primary key and cannot be changed later.'}</p></div><button className="question-editor-close" type="button" aria-label="Close question editor" disabled={saving} onClick={closeEditor}>×</button></div>
           {!editingCode && <div className="question-editor-meta">
             <label>Questionnaire code<input value={form.code} maxLength={20} placeholder="Example: HL24" onChange={event => setForm({ ...form, code: event.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '') })} required /></label>
-            <label>Questionnaire category<select value={form.leadershipLevel} onChange={event => setForm({ ...form, leadershipLevel: event.target.value as LeadershipLevel })}>{categories.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
+            <label>Questionnaire category<select value={form.leadershipLevel} onChange={event => setForm({ ...form, leadershipLevel: event.target.value as QuestionCategory })}>{categories.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
             <label>Display order<input type="number" min="0" max="9999" step="1" value={form.sortOrder} onChange={event => setForm({ ...form, sortOrder: Number(event.target.value) })} required /></label>
             <label>Analysis dimension <span>optional</span><input value={form.dimension} maxLength={120} placeholder="Example: Accountability" onChange={event => setForm({ ...form, dimension: event.target.value })} /></label>
           </div>}

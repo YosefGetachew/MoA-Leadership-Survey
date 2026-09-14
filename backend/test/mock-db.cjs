@@ -10,7 +10,10 @@ function createMockDb() {
   let clock = null;
   const now = () => clock ?? Date.now();
   const validTargets = { high_level: ['minister', 'test_high'], middle_level: ['executive', 'test_middle'], lower_level: ['team_leader', 'test_lower'] };
-  const questions = questionSections.flatMap(section => section.questions.map((question, index) => ({ surveyId: '1', code: question.code, leadershipLevel: section.level, textEn: question.text, textAm: question.textAm, dimension: question.dimension || null, sortOrder: (index + 1) * 10, active: true, updatedAt: new Date(now()).toISOString(), updatedBy: null })));
+  const questions = [
+    ...questionSections.flatMap(section => section.questions.map((question, index) => ({ surveyId: '1', code: question.code, leadershipLevel: section.level, textEn: question.text, textAm: question.textAm, dimension: question.dimension || null, sortOrder: (index + 1) * 10, active: true, updatedAt: new Date(now()).toISOString(), updatedBy: null }))),
+    ...['GQ1', 'GQ2', 'GQ3'].map((code, index) => ({ surveyId: '1', code, leadershipLevel: 'open_ended', textEn: `Open question ${index + 1}`, textAm: `ክፍት ጥያቄ ${index + 1}`, dimension: 'Qualitative feedback', sortOrder: (index + 1) * 10, active: true, updatedAt: new Date(now()).toISOString(), updatedBy: null })),
+  ];
   async function query(sql, values = []) {
     if (sql === 'SELECT id FROM survey_control WHERE id=1 FOR UPDATE') return [{ id: 1 }];
     if (sql.includes('FROM survey_control c JOIN surveys')) {
@@ -53,7 +56,7 @@ function createMockDb() {
     if (sql.startsWith('UPDATE surveys SET published=false')) { surveys.forEach(survey => { survey.published = false; }); return []; }
     if (sql.startsWith('UPDATE surveys SET published=true')) { const survey = surveys.find(item => item.id === String(values[0])); if (survey) survey.published = true; return []; }
     if (sql.includes('count(*)::integer AS count FROM survey_questions')) return ['high_level', 'middle_level', 'lower_level'].map(leadershipLevel => ({ leadershipLevel, count: questions.filter(question => question.surveyId === String(values[0] || 1) && question.active && question.leadershipLevel === leadershipLevel).length }));
-    if (sql.includes('FROM survey_questions') && !sql.includes('INSERT INTO survey_questions')) return questions.filter(question => question.surveyId === String(values[0] || 1)).filter(question => sql.includes('AND active=true') ? question.active : true).sort((a, b) => a.leadershipLevel.localeCompare(b.leadershipLevel) || a.sortOrder - b.sortOrder || a.code.localeCompare(b.code));
+    if (sql.includes('FROM survey_questions') && !sql.includes('INSERT INTO survey_questions')) return questions.filter(question => question.surveyId === String(values[0] || 1)).filter(question => sql.includes("leadership_level='open_ended'") ? question.leadershipLevel === 'open_ended' : true).filter(question => sql.includes('AND active=true') ? question.active : true).sort((a, b) => a.leadershipLevel.localeCompare(b.leadershipLevel) || a.sortOrder - b.sortOrder || a.code.localeCompare(b.code));
     if (sql.includes('INSERT INTO survey_questions')) {
       if (sql.includes('SELECT $1,code')) {
         const [surveyId, updatedBy, sourceId] = values;
@@ -80,18 +83,18 @@ function createMockDb() {
       return [question];
     }
     if (sql.includes('INSERT INTO leadership_assessment_responses')) {
-      const [surveyId, version, evaluatorLevel, sex, age, workExperience, responses, answeredCount, naCount, token, periodId] = values;
+      const [surveyId, version, evaluatorLevel, sex, age, workExperience, responses, openEndedResponses, answeredCount, naCount, token, periodId] = values;
       const period = periods.find(period => period.id === String(periodId));
       if (!period || period.closedAt || Date.parse(period.startsAt) > now() || Date.parse(period.endsAt) <= now()) return [];
       if (rows.some(row => row.token === token && row.surveyId === String(surveyId))) throw Object.assign(new Error('duplicate'), { code: '23505' });
       writes++;
-      const row = { id: rows.length + 1, surveyId: String(surveyId), surveyVersion: version, surveyPeriodId: periodId, leadershipLevel: 'all_levels', evaluatorLevel, sex, age, workExperience, assessmentTargets: {}, overallResponses: {}, responses: JSON.parse(responses), answeredCount, naCount, token, completedAt: new Date(now()).toISOString() };
+      const row = { id: rows.length + 1, surveyId: String(surveyId), surveyVersion: version, surveyPeriodId: periodId, leadershipLevel: 'all_levels', evaluatorLevel, sex, age, workExperience, assessmentTargets: {}, overallResponses: {}, responses: JSON.parse(responses), openEndedResponses: JSON.parse(openEndedResponses), answeredCount, naCount, token, completedAt: new Date(now()).toISOString() };
       rows.push(row);
       return [{ id: row.id, completedAt: row.completedAt }];
     }
     if (sql.includes('WHERE respondent_token=$1')) return rows.filter(row => row.token === values[0] && row.surveyId === String(values[1]));
     if (sql.includes('FROM leadership_assessment_responses r')) return rows.filter(row => row.surveyId === String(values[0] || 1));
-    if (sql.includes('FROM leadership_assessment_responses WHERE survey_id')) return rows.filter(row => row.surveyId === String(values[0] || 1)).map(row => ({ id: row.id, survey_version: row.surveyVersion, leadership_level: row.leadershipLevel, evaluator_level: row.evaluatorLevel, assessment_targets: row.assessmentTargets, sex: row.sex, age: row.age, work_experience: row.workExperience, completed_at: new Date(row.completedAt), overall_responses: row.overallResponses, responses: row.responses }));
+    if (sql.includes('FROM leadership_assessment_responses WHERE survey_id')) return rows.filter(row => row.surveyId === String(values[0] || 1)).map(row => ({ id: row.id, survey_version: row.surveyVersion, leadership_level: row.leadershipLevel, evaluator_level: row.evaluatorLevel, assessment_targets: row.assessmentTargets, sex: row.sex, age: row.age, work_experience: row.workExperience, completed_at: new Date(row.completedAt), overall_responses: row.overallResponses, responses: row.responses, open_ended_responses: row.openEndedResponses }));
     if (sql === 'SELECT 1') return [{ '?column?': 1 }];
     throw new Error(`Unimplemented test query: ${sql}`);
   }

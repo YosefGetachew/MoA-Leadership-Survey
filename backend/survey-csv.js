@@ -13,17 +13,17 @@ function rating(value) {
   if (value === 6) return 'N/A';
   return Number.isInteger(value) && value >= 1 && value <= 5 ? value : '';
 }
-function buildSurveyCsv(rows, sections = []) {
+function buildSurveyCsv(rows, sections = [], openQuestions = []) {
   const coverageLabels = Object.fromEntries(sections.map(section => [section.level, section.title]));
   const questions = sections.flatMap(section => section.questions.map((question, index) => ({
     code: question.code, header: `${section.title} ${index + 1} (${question.code})`,
   })));
-  const headers = ['ID', 'Survey version', 'Assessed levels', 'Evaluator leadership level', 'Sex', 'Age (years)', 'Work experience (years)', 'Submitted at (UTC)', ...questions.map(question => question.header)];
+  const headers = ['ID', 'Survey version', 'Assessed levels', 'Evaluator leadership level', 'Sex', 'Age (years)', 'Work experience (years)', 'Submitted at (UTC)', ...questions.map(question => question.header), ...openQuestions.map(question => `${question.code} - ${question.text}`)];
   const records = rows.map(row => [
     row.id, row.survey_version,
     row.leadership_level === 'all_levels' ? 'Senior, Middle and Lower Leadership' : coverageLabels[row.leadership_level] || '',
     evaluatorLabels[row.evaluator_level] || '', sexLabels[row.sex] || '', row.age, row.work_experience,
-    new Date(row.completed_at).toISOString(), ...questions.map(question => rating(row.responses?.[question.code])),
+    new Date(row.completed_at).toISOString(), ...questions.map(question => rating(row.responses?.[question.code])), ...openQuestions.map(question => row.open_ended_responses?.[question.code] || ''),
   ]);
   // UTF-8 BOM and CRLF make the download straightforward to open in Excel.
   return '\uFEFF' + [headers, ...records].map(record => record.map(csvCell).join(',')).join('\r\n') + '\r\n';

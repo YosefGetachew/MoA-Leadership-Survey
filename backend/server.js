@@ -17,7 +17,7 @@ const { SURVEY_VERSION, PREVIOUS_SURVEY_VERSION, LEGACY_SURVEY_VERSION, LEADERSH
 const { buildSurveyCsv } = require("./survey-csv");
 const { buildSurveyAnalytics, parseFilters } = require("./survey-analytics");
 const { getAvailability, lockControl, assertOpen, changeWindow } = require("./survey-window");
-const { QUESTION_CATEGORIES, QUESTION_CODE_PATTERN, getQuestionSections, questionCodes } = require("./question-bank");
+const { QUESTION_CATEGORIES, QUESTION_CODE_PATTERN, getQuestionSections, getOpenEndedQuestions, questionCodes } = require("./question-bank");
 const { normalizeId, listSurveys, getSurvey, createSurvey, updateSurvey } = require("./survey-catalog");
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "").split(",").map((value) => value.trim()).filter(Boolean);
 
@@ -61,8 +61,12 @@ app.get("/api/health", async (_req, res, next) => {
 app.get("/api/survey/questions", async (_req, res, next) => {
   try {
     const availability = await getAvailability(query);
-    const sections = await getQuestionSections(query, { surveyId: Number(availability.survey.id) });
-    res.set("Cache-Control", "no-store").json({ survey: availability.survey, sections });
+    const surveyId = Number(availability.survey.id);
+    const [sections, openQuestions] = await Promise.all([
+      getQuestionSections(query, { surveyId }),
+      getOpenEndedQuestions(query, { surveyId }),
+    ]);
+    res.set("Cache-Control", "no-store").json({ survey: availability.survey, sections, openQuestions });
   } catch (error) { next(error); }
 });
 
@@ -124,16 +128,17 @@ app.post("/api/survey/responses", async (req, res, next) => {
       assertOpen(availability, req.body.periodId);
       if (req.body.surveyId != null && String(req.body.surveyId) !== availability.survey.id) throw Object.assign(new Error('The published survey has changed. Please reload and begin again.'), { statusCode: 409, code: 'SURVEY_CHANGED' });
       const sections = await getQuestionSections(transactionQuery, { surveyId: Number(availability.survey.id) });
-      const data = validateSubmission(req.body, questionCodes(sections));
+      const openQuestions = await getOpenEndedQuestions(transactionQuery, { surveyId: Number(availability.survey.id) });
+      const data = validateSubmission(req.body, questionCodes(sections), openQuestions.map(question => question.code));
       if (!respondentToken) throw Object.assign(new Error("Reload the survey and allow cookies before submitting."), { statusCode: 428, code: "SURVEY_SESSION_REQUIRED" });
       const saved = await transactionQuery(
       `INSERT INTO leadership_assessment_responses
-       (survey_id,survey_version,leadership_level,evaluator_level,sex,age,work_experience,responses,answered_count,na_count,respondent_token,survey_period_id)
-       SELECT $1,$2,'all_levels',$3,$4,$5,$6,$7::jsonb,$8,$9,$10,p.id FROM survey_periods p
-       WHERE p.id=$11 AND p.survey_id=$1 AND p.closed_at IS NULL AND p.starts_at<=clock_timestamp() AND p.ends_at>clock_timestamp()
+       (survey_id,survey_version,leadership_level,evaluator_level,sex,age,work_experience,responses,open_ended_responses,answered_count,na_count,respondent_token,survey_period_id)
+       SELECT $1,$2,'all_levels',$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,$10,$11,p.id FROM survey_periods p
+       WHERE p.id=$12 AND p.survey_id=$1 AND p.closed_at IS NULL AND p.starts_at<=clock_timestamp() AND p.ends_at>clock_timestamp()
        RETURNING id,completed_at AS "completedAt"`,
       [Number(availability.survey.id), SURVEY_VERSION, data.evaluatorLevel, data.sex, data.age, data.workExperience,
-        JSON.stringify(data.responses), data.answeredCount, data.naCount, `period:${availability.period.id}:${responseToken(req, respondentToken)}`, availability.period.id],
+        JSON.stringify(data.responses), JSON.stringify(data.openEndedResponses), data.answeredCount, data.naCount, `period:${availability.period.id}:${responseToken(req, respondentToken)}`, availability.period.id],
       );
       if (!saved.length) throw Object.assign(new Error("There is no survey at this time."), { statusCode: 403, code: "SURVEY_CLOSED" });
       return saved;
@@ -242,16 +247,16 @@ app.get("/api/admin/survey-results", requireStaff, async (req, res, next) => {
   try {
     const surveyId = normalizeId(req.query.surveyId);
     const filters = parseFilters(req.query);
-    const sections = await getQuestionSections(query, { surveyId });
+    const [sections, openQuestions] = await Promise.all([getQuestionSections(query, { surveyId }), getOpenEndedQuestions(query, { surveyId })]);
     const rows = await query(
       `SELECT r.id,r.leadership_level AS "leadershipLevel",r.evaluator_level AS "evaluatorLevel",
               r.survey_version AS "surveyVersion",r.sex,r.age,r.work_experience AS "workExperience",
-              r.responses,r.completed_at AS "completedAt"
+              r.responses,r.open_ended_responses AS "openEndedResponses",r.completed_at AS "completedAt"
        FROM leadership_assessment_responses r
        WHERE r.survey_id=$1 ORDER BY r.completed_at DESC`,
       [surveyId],
     );
-    res.set("Cache-Control", "no-store").json(buildSurveyAnalytics(rows, filters, sections));
+    res.set("Cache-Control", "no-store").json(buildSurveyAnalytics(rows, filters, sections, openQuestions));
   } catch (error) {
     if (error.statusCode === 400) return res.status(400).json({ error: error.message });
     next(error);
@@ -262,22 +267,25 @@ app.get("/api/admin/survey-results.csv", requireStaff, async (req, res, next) =>
   try {
     const surveyId = normalizeId(req.query.surveyId);
     const survey = await getSurvey(query, surveyId);
-    const sections = await getQuestionSections(query, { surveyId });
+    const [sections, openQuestions] = await Promise.all([getQuestionSections(query, { surveyId }), getOpenEndedQuestions(query, { surveyId })]);
     const rows = await query(
       `SELECT id,survey_version,leadership_level,evaluator_level,
-              sex,age,work_experience,completed_at,responses
+              sex,age,work_experience,completed_at,responses,open_ended_responses
        FROM leadership_assessment_responses WHERE survey_id=$1 ORDER BY completed_at DESC`,
       [surveyId],
     );
-    res.type("text/csv; charset=utf-8").attachment(`${survey.slug}-${new Date().toISOString().slice(0, 10)}.csv`).send(buildSurveyCsv(rows, sections));
+    res.type("text/csv; charset=utf-8").attachment(`${survey.slug}-${new Date().toISOString().slice(0, 10)}.csv`).send(buildSurveyCsv(rows, sections, openQuestions));
   } catch (error) { next(error); }
 });
 
 app.get("/api/admin/questions", requireAdministrator, async (req, res, next) => {
   try {
     const surveyId = normalizeId(req.query.surveyId);
-    const sections = await getQuestionSections(query, { includeInactive: true, surveyId });
-    res.set("Cache-Control", "no-store").json({ sections });
+    const [sections, openQuestions] = await Promise.all([
+      getQuestionSections(query, { includeInactive: true, surveyId }),
+      getOpenEndedQuestions(query, { includeInactive: true, surveyId }),
+    ]);
+    res.set("Cache-Control", "no-store").json({ sections, openQuestions });
   } catch (error) { next(error); }
 });
 
@@ -292,7 +300,7 @@ app.post("/api/admin/questions", requireAdministrator, async (req, res, next) =>
     const dimension = clean(req.body.dimension, 120) || null;
     const sortOrder = Number(req.body.sortOrder);
     if (!QUESTION_CODE_PATTERN.test(code)) return res.status(400).json({ error: "Use a unique questionnaire code such as HL24. It must begin with a letter and contain only capital letters, numbers or underscores." });
-    if (!QUESTION_CATEGORIES.has(leadershipLevel)) return res.status(400).json({ error: "Select a valid leadership category." });
+    if (!QUESTION_CATEGORIES.has(leadershipLevel) && leadershipLevel !== 'open_ended') return res.status(400).json({ error: "Select a valid questionnaire category." });
     if (!textEn || !textAm) return res.status(400).json({ error: "Enter both the English and Amharic question text." });
     if (!Number.isInteger(sortOrder) || sortOrder < 0 || sortOrder > 9999) return res.status(400).json({ error: "Sort order must be a whole number from 0 to 9999." });
     const rows = await query(
