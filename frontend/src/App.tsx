@@ -168,6 +168,7 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
     language === "am" ? "የገምጋሚው መረጃ" : "Evaluator information",
     ...sections.map(levelTitle),
     language === "am" ? "ባለሙያ" : "Expert",
+    t.openSection,
   ].join(" → ");
   const transitionFrom = transition ? sections.find(item => item.level === transition.from) : undefined;
   const transitionTo = transition?.to ? sections.find(item => item.level === transition.to) : undefined;
@@ -194,6 +195,7 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
       .then(payload => {
         if (!live || payload.sections.length !== 3 || payload.sections.some(section => !section.questions.length)) throw new Error("The questionnaire is not configured.");
         const qualitative = payload.openQuestions || [];
+        if (qualitative.length !== 3 || !['GQ1', 'GQ2', 'GQ3'].every(code => qualitative.some(question => question.code === code))) throw new Error("The open-ended questionnaire is not configured.");
         const restored = typeof draft?.periodId === "string" && draft.periodId === activePeriod.current ? sanitizeDraft(draft, payload.sections, qualitative) : sanitizeDraft(null, payload.sections, qualitative);
         setSections(payload.sections);
         setOpenQuestions(qualitative);

@@ -129,6 +129,9 @@ app.post("/api/survey/responses", async (req, res, next) => {
       if (req.body.surveyId != null && String(req.body.surveyId) !== availability.survey.id) throw Object.assign(new Error('The published survey has changed. Please reload and begin again.'), { statusCode: 409, code: 'SURVEY_CHANGED' });
       const sections = await getQuestionSections(transactionQuery, { surveyId: Number(availability.survey.id) });
       const openQuestions = await getOpenEndedQuestions(transactionQuery, { surveyId: Number(availability.survey.id) });
+      if (openQuestions.length !== 3 || !['GQ1', 'GQ2', 'GQ3'].every(code => openQuestions.some(question => question.code === code))) {
+        throw Object.assign(new Error('The required open-ended questions are not configured. Ask the survey administrator to run the database migration.'), { statusCode: 503, code: 'OPEN_QUESTIONS_NOT_CONFIGURED' });
+      }
       const data = validateSubmission(req.body, questionCodes(sections), openQuestions.map(question => question.code));
       if (!respondentToken) throw Object.assign(new Error("Reload the survey and allow cookies before submitting."), { statusCode: 428, code: "SURVEY_SESSION_REQUIRED" });
       const saved = await transactionQuery(
