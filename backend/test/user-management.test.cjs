@@ -1,0 +1,157 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const { createMockDb } = require('./mock-db.cjs');
+
+test('administrator manages users and reset passwords invalidate existing sessions', async t => {
+  process.env.NODE_ENV = 'test';
+  process.env.MINISTRY_ADMIN_SESSION = 'isolated-user-management-test';
+  process.env.APP_PUBLIC_URL = 'https://leadershipsurvey.moa.gov.et';
+  process.env.SMTP_HOST = 'mail.example.org';
+  process.env.SMTP_FROM = 'survey@example.org';
+  process.env.FTMS_EMAIL_ENV_FILE = path.join(__dirname, 'fixtures', 'ftms-email.env');
+  const db = createMockDb();
+  require.cache[require.resolve('../config/db')] = { exports: db };
+  const app = require('../server');
+  const invitationsSent = [];
+  const passwordMails = [];
+  app.locals.sendInvitation = async message => { invitationsSent.push(message); };
+  app.locals.sendPasswordReset = async message => { passwordMails.push(message); };
+  const { createStaffSession } = require('../auth');
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  const cookie = (username, role) => `moa_reform_admin=${createStaffSession({ username, displayName: username, role })}`;
+  const admin = cookie('admin', 'admin');
+  const viewer = cookie('viewer', 'viewer');
+  const surveyAdmin = cookie('survey_admin', 'survey_admin');
+  const call = (path, method = 'GET', body, staffCookie) => fetch(url + path, {
+    method, headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(staffCookie ? { Cookie: staffCookie } : {}) },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+
+  assert.equal((await call('/api/admin/users')).status, 403);
+  assert.equal((await call('/api/admin/users', 'GET', undefined, viewer)).status, 403);
+  assert.equal((await call('/api/admin/users', 'GET', undefined, surveyAdmin)).status, 403);
+  const listed = await call('/api/admin/users', 'GET', undefined, admin);
+  assert.equal(listed.status, 200);
+  assert.equal(listed.headers.get('cache-control'), 'no-store');
+  assert.equal(JSON.stringify(await listed.json()).includes('passwordHash'), false);
+  assert.equal((await call('/api/admin/invitation-status', 'GET', undefined, viewer)).status, 403);
+  const mailStatus = await call('/api/admin/invitation-status', 'GET', undefined, admin).then(r => r.json());
+  assert.equal(mailStatus.configured, true);
+  assert.equal(mailStatus.source, 'ftms');
+  process.env.APP_PUBLIC_URL = '';
+  assert.equal((await call('/api/admin/invitation-status', 'GET', undefined, admin).then(r => r.json())).configured, false);
+  const missingSettings = await call('/api/admin/users', 'POST', { email: 'not-created@example.org', displayName: 'Not Created', role: 'viewer' }, admin);
+  assert.equal(missingSettings.status, 503);
+  assert.match((await missingSettings.json()).error, /APP_PUBLIC_URL/);
+  assert.equal(db.users.some(user => user.email === 'not-created@example.org'), false);
+  process.env.APP_PUBLIC_URL = 'https://leadershipsurvey.moa.gov.et';
+
+  const details = { email: 'new.manager@example.org', displayName: 'New Manager', role: 'survey_admin' };
+  assert.equal((await call('/api/admin/users', 'POST', details, surveyAdmin)).status, 403);
+  assert.equal((await call('/api/admin/users', 'POST', { ...details, email: 'not-an-email' }, admin)).status, 400);
+  const created = await call('/api/admin/users', 'POST', details, admin);
+  assert.equal(created.status, 201);
+  const createdUser = (await created.json()).user;
+  assert.equal(createdUser.role, 'survey_admin');
+  assert.equal(createdUser.email, details.email);
+  assert.equal(createdUser.mustChangePassword, true);
+  assert.equal('passwordHash' in createdUser, false);
+  assert.equal(invitationsSent.length, 1);
+  assert.equal(invitationsSent[0].email, details.email);
+  assert.equal((await call(`/api/admin/users/${createdUser.id}/reset-password`, 'POST', { password: 'initial-long-password-123' }, admin)).status, 409);
+  assert.equal((await call('/api/admin/login', 'POST', { username: details.email, password: 'initial-long-password-123' })).status, 401);
+  assert.equal((await call('/api/admin/accept-invitation', 'POST', { token: 'invalid', password: 'initial-long-password-123' })).status, 400);
+  assert.equal((await call(`/api/admin/users/${createdUser.id}/resend-invitation`, 'POST', undefined, viewer)).status, 403);
+  assert.equal((await call(`/api/admin/users/${createdUser.id}/resend-invitation`, 'POST', undefined, admin)).status, 200);
+  assert.equal(invitationsSent.length, 2);
+  assert.notEqual(invitationsSent[0].token, invitationsSent[1].token);
+  assert.equal((await call('/api/admin/accept-invitation', 'POST', { token: invitationsSent[0].token, password: 'initial-long-password-123' })).status, 400);
+  assert.equal((await call('/api/admin/accept-invitation', 'POST', { token: invitationsSent[1].token, password: 'initial-long-password-123' })).status, 200);
+  assert.equal((await call('/api/admin/accept-invitation', 'POST', { token: invitationsSent[1].token, password: 'initial-long-password-123' })).status, 400);
+  assert.equal(db.users.find(user => user.id === createdUser.id).mustChangePassword, false);
+
+  const unknownReset = await call('/api/admin/forgot-password', 'POST', { username: 'does.not.exist' });
+  const knownReset = await call('/api/admin/forgot-password', 'POST', { username: details.email });
+  assert.equal(unknownReset.status, 202);
+  assert.equal(knownReset.status, 202);
+  assert.deepEqual(await unknownReset.json(), await knownReset.json());
+  assert.equal(db.resetRequests.size, 0);
+  assert.equal(db.passwordResets.size, 1);
+  assert.equal(passwordMails.length, 1);
+  assert.equal(passwordMails[0].email, details.email);
+  await call('/api/admin/forgot-password', 'POST', { username: details.email });
+  assert.equal(passwordMails.length, 1);
+  await call('/api/admin/forgot-password', 'POST', { username: 'viewer' });
+  assert.equal(db.resetRequests.size, 1);
+  assert.ok(db.resetRequests.get(2).requestedAt);
+
+  const signIn = (password) => call('/api/admin/login', 'POST', { username: details.email, password });
+  const login = await signIn('initial-long-password-123');
+  assert.equal(login.status, 200);
+  const newCookie = login.headers.get('set-cookie').split(';')[0];
+  assert.equal((await call('/api/admin/survey-window', 'GET', undefined, newCookie)).status, 200);
+  assert.equal((await call('/api/admin/questions', 'GET', undefined, newCookie)).status, 200);
+  assert.equal((await call('/api/admin/survey-results', 'GET', undefined, newCookie)).status, 403);
+  assert.equal((await call('/api/admin/users', 'GET', undefined, newCookie)).status, 403);
+
+  assert.equal((await call(`/api/admin/users/${createdUser.id}`, 'PATCH', { displayName: 'New Manager', role: 'viewer', active: true }, surveyAdmin)).status, 403);
+  const changed = await call(`/api/admin/users/${createdUser.id}`, 'PATCH', { displayName: 'Results Viewer', role: 'viewer', active: true }, admin);
+  assert.equal(changed.status, 200);
+  assert.equal((await call('/api/admin/session', 'GET', undefined, newCookie).then(r => r.json())).authorized, false);
+  const viewerLogin = await signIn('initial-long-password-123');
+  assert.equal(viewerLogin.status, 200);
+  const viewerCookie = viewerLogin.headers.get('set-cookie').split(';')[0];
+  assert.equal((await call('/api/admin/survey-results', 'GET', undefined, viewerCookie)).status, 200);
+  assert.equal((await call('/api/admin/questions', 'GET', undefined, viewerCookie)).status, 403);
+
+  assert.equal((await call('/api/admin/reset-password', 'POST', { token: 'invalid', password: 'self-reset-password-123' })).status, 400);
+  assert.equal((await call('/api/admin/reset-password', 'POST', { token: passwordMails[0].token, password: 'self-reset-password-123' })).status, 200);
+  assert.equal((await call('/api/admin/reset-password', 'POST', { token: passwordMails[0].token, password: 'self-reset-password-123' })).status, 400);
+  assert.equal((await call('/api/admin/session', 'GET', undefined, viewerCookie).then(r => r.json())).authorized, false);
+  assert.equal((await signIn('initial-long-password-123')).status, 401);
+  const afterSelfReset = await signIn('self-reset-password-123');
+  assert.equal(afterSelfReset.status, 200);
+  const afterSelfResetCookie = afterSelfReset.headers.get('set-cookie').split(';')[0];
+
+  assert.equal((await call(`/api/admin/users/${createdUser.id}/reset-password`, 'POST', { password: 'Admin123' }, viewerCookie)).status, 403);
+  assert.equal((await call(`/api/admin/users/${createdUser.id}/reset-password`, 'POST', { password: 'Admin12' }, admin)).status, 400);
+  assert.equal((await call(`/api/admin/users/${createdUser.id}/reset-password`, 'POST', { password: 'Admin123' }, admin)).status, 200);
+  assert.equal((await call('/api/admin/users', 'GET', undefined, admin).then(r => r.json())).users.find(user => user.id === createdUser.id).resetRequestedAt, null);
+  assert.equal((await call('/api/admin/session', 'GET', undefined, afterSelfResetCookie).then(r => r.json())).authorized, false);
+  assert.equal((await signIn('self-reset-password-123')).status, 401);
+  assert.equal((await signIn('Admin123')).status, 200);
+
+  assert.equal((await call('/api/admin/users/1', 'PATCH', { displayName: 'Administrator', role: 'viewer', active: true }, admin)).status, 409);
+  assert.equal((await call(`/api/admin/users/${createdUser.id}`, 'PATCH', { displayName: 'Results Viewer', role: 'viewer', active: false }, admin)).status, 200);
+  assert.equal((await signIn('Admin123')).status, 401);
+
+  app.locals.sendInvitation = async () => { throw new Error('SMTP unavailable'); };
+  const failedMail = await call('/api/admin/users', 'POST', { email: 'pending@example.org', displayName: 'Pending User', role: 'viewer' }, admin);
+  assert.equal(failedMail.status, 502);
+  assert.equal((await failedMail.json()).userCreated, true);
+  const pending = db.users.find(user => user.email === 'pending@example.org');
+  assert.equal(pending.mustChangePassword, true);
+  app.locals.sendInvitation = async message => { invitationsSent.push(message); };
+  assert.equal((await call(`/api/admin/users/${pending.id}/resend-invitation`, 'POST', undefined, admin)).status, 200);
+  const expiredToken = invitationsSent.at(-1).token;
+  db.setNow(new Date(Date.now() + 49 * 60 * 60 * 1000).toISOString());
+  assert.equal((await call('/api/admin/accept-invitation', 'POST', { token: expiredToken, password: 'pending-user-password-123' })).status, 400);
+  assert.equal((await call(`/api/admin/users/${pending.id}/resend-invitation`, 'POST', undefined, admin)).status, 200);
+  assert.equal((await call('/api/admin/accept-invitation', 'POST', { token: invitationsSent.at(-1).token, password: 'Abc1234' })).status, 400);
+  assert.equal((await call('/api/admin/accept-invitation', 'POST', { token: invitationsSent.at(-1).token, password: 'Abc12345' })).status, 200);
+  app.locals.sendPasswordReset = async () => { throw new Error('SMTP unavailable'); };
+  assert.equal((await call('/api/admin/forgot-password', 'POST', { username: pending.email })).status, 202);
+  assert.equal(db.passwordResets.has(pending.id), false);
+  app.locals.sendPasswordReset = async message => { passwordMails.push(message); };
+  assert.equal((await call('/api/admin/forgot-password', 'POST', { username: pending.email })).status, 202);
+  const expiredResetToken = passwordMails.at(-1).token;
+  db.setNow(new Date(Date.now() + 51 * 60 * 60 * 1000).toISOString());
+  assert.equal((await call('/api/admin/reset-password', 'POST', { token: expiredResetToken, password: 'new-pending-password-123' })).status, 400);
+  assert.equal((await call('/api/admin/forgot-password', 'POST', { username: pending.email })).status, 202);
+  assert.equal((await call('/api/admin/reset-password', 'POST', { token: passwordMails.at(-1).token, password: 'Newpass' })).status, 400);
+  assert.equal((await call('/api/admin/reset-password', 'POST', { token: passwordMails.at(-1).token, password: 'Newpass8' })).status, 200);
+});

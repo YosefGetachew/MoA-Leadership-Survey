@@ -95,11 +95,37 @@ async function ensureSchema() {
       username text NOT NULL,
       password_hash text NOT NULL,
       display_name text NOT NULL,
-      role text NOT NULL DEFAULT 'viewer' CHECK (role IN ('admin','viewer')),
+      role text NOT NULL DEFAULT 'viewer' CHECK (role IN ('admin','survey_admin','viewer')),
       active boolean NOT NULL DEFAULT true,
+      email text,
+      must_change_password boolean NOT NULL DEFAULT false,
+      session_version integer NOT NULL DEFAULT 0,
       created_at timestamptz NOT NULL DEFAULT now()
     );
     CREATE UNIQUE INDEX IF NOT EXISTS admin_users_username_idx ON admin_users(lower(username));
+    ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS email text;
+    ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS must_change_password boolean NOT NULL DEFAULT false;
+    CREATE UNIQUE INDEX IF NOT EXISTS admin_users_email_idx ON admin_users(lower(email)) WHERE email IS NOT NULL;
+    ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS session_version integer NOT NULL DEFAULT 0;
+    ALTER TABLE admin_users DROP CONSTRAINT IF EXISTS admin_users_role_check;
+    ALTER TABLE admin_users ADD CONSTRAINT admin_users_role_check CHECK (role IN ('admin','survey_admin','viewer'));
+    CREATE TABLE IF NOT EXISTS password_reset_requests (
+      user_id integer PRIMARY KEY REFERENCES admin_users(id) ON DELETE CASCADE,
+      requested_at timestamptz NOT NULL DEFAULT now(),
+      resolved_at timestamptz
+    );
+    CREATE TABLE IF NOT EXISTS admin_invitations (
+      user_id integer PRIMARY KEY REFERENCES admin_users(id) ON DELETE CASCADE,
+      token_hash text NOT NULL UNIQUE,
+      expires_at timestamptz NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS admin_password_resets (
+      user_id integer PRIMARY KEY REFERENCES admin_users(id) ON DELETE CASCADE,
+      token_hash text NOT NULL UNIQUE,
+      expires_at timestamptz NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
 
     CREATE TABLE IF NOT EXISTS survey_settings (
       key text PRIMARY KEY,

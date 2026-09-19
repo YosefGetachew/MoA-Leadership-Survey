@@ -5,8 +5,9 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 const express = require("express");
 const cookieParser = require("cookie-parser");
 const { ensureSchema, query, withTransaction } = require("./config/db");
-const { createStaffSession, getStaffSession, requireStaff, requireAdministrator } = require("./auth");
+const { createStaffSession, getStaffSession, requireStaff, requireAdministrator, requireSurveyManager, requireResultsReader } = require("./auth");
 const { hashPassword, verifyPassword } = require("./password");
+const { invitationSettings, sendInvitation, sendPasswordReset } = require("./invitation-mail");
 
 const app = express();
 const PORT = Number(process.env.PORT || 5001);
@@ -20,6 +21,11 @@ const { getAvailability, lockControl, assertOpen, changeWindow } = require("./su
 const { QUESTION_CATEGORIES, QUESTION_CODE_PATTERN, getQuestionSections, getOpenEndedQuestions, questionCodes } = require("./question-bank");
 const { normalizeId, listSurveys, getSurvey, createSurvey, updateSurvey } = require("./survey-catalog");
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "").split(",").map((value) => value.trim()).filter(Boolean);
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function invitationToken() { return crypto.randomBytes(32).toString("base64url"); }
+function tokenHash(token) { return crypto.createHash("sha256").update(token).digest("hex"); }
+app.locals.sendInvitation = sendInvitation;
+app.locals.sendPasswordReset = sendPasswordReset;
 
 app.disable("x-powered-by");
 app.use(express.json({ limit: "100kb" }));
@@ -36,11 +42,23 @@ app.use((req, res, next) => {
   }
   next();
 });
+app.use(async (req, _res, next) => {
+  try {
+    const signed = getStaffSession(req);
+    if (signed) {
+      const rows = await query(`SELECT username,display_name AS "displayName",role,active,must_change_password AS "mustChangePassword",
+        session_version AS "sessionVersion" FROM admin_users WHERE lower(username)=lower($1) LIMIT 1`, [signed.username]);
+      const user = rows[0];
+      if (user?.active && !user.mustChangePassword && user.sessionVersion === signed.sessionVersion) req.staff = user;
+    }
+    next();
+  } catch (error) { next(error); }
+});
 
 function clean(value, max = 2000) { return typeof value === "string" ? value.trim().slice(0, max) : ""; }
 function cookieOptions(maxAge) { return { httpOnly: true, sameSite: "strict", secure: process.env.NODE_ENV === "production", maxAge, path: "/" }; }
 function responseToken(req, publicToken) {
-  const staff = getStaffSession(req);
+  const staff = req.staff;
   const attempt = clean(req.cookies?.[ADMIN_ATTEMPT_COOKIE], 100);
   if (staff?.role === 'admin' && /^[0-9a-f-]{36}$/.test(attempt)) {
     const identity = crypto.createHash('sha256').update(staff.username).digest('hex');
@@ -86,7 +104,7 @@ app.get("/api/survey/status", async (req, res, next) => {
     res.set("Cache-Control", "no-store");
     const availability = await getAvailability(query);
     const token = clean(req.cookies?.[RESPONDENT_COOKIE], 100) || crypto.randomUUID();
-    const canSubmitAnother = getStaffSession(req)?.role === 'admin';
+    const canSubmitAnother = req.staff?.role === 'admin';
     if (!req.cookies?.[RESPONDENT_COOKIE]) res.cookie(RESPONDENT_COOKIE, token, cookieOptions(365 * 24 * 60 * 60 * 1000));
     if (!availability.period) return res.json({ submitted: false, availability, canSubmitAnother });
     const existing = await query(
@@ -158,15 +176,17 @@ app.post("/api/survey/responses", async (req, res, next) => {
 app.post("/api/admin/login", async (req, res, next) => {
   try {
     if (!process.env.MINISTRY_ADMIN_SESSION) return res.status(503).json({ error: "Staff access is not configured." });
-    const username = clean(req.body.username, 80);
+    const username = clean(req.body.username, 254);
     const password = typeof req.body.password === "string" ? req.body.password : "";
     const user = (await query(
-      `SELECT username,password_hash AS "passwordHash",display_name AS "displayName",role,active FROM admin_users WHERE lower(username)=lower($1) LIMIT 1`,
+      `SELECT username,password_hash AS "passwordHash",display_name AS "displayName",role,active,must_change_password AS "mustChangePassword",
+        session_version AS "sessionVersion" FROM admin_users WHERE lower(username)=lower($1) LIMIT 1`,
       [username],
     ))[0];
     if (!user?.active || !(await verifyPassword(password, user.passwordHash))) return res.status(401).json({ error: "Incorrect username or password." });
+    if (user.mustChangePassword) return res.status(403).json({ error: "Finish setting your password using the invitation email before signing in." });
     res.cookie(ADMIN_COOKIE, createStaffSession(user), cookieOptions(8 * 60 * 60 * 1000));
-    res.json({ authorized: true, displayName: user.displayName, role: user.role });
+    res.json({ authorized: true, username: user.username, displayName: user.displayName, role: user.role });
   } catch (error) { next(error); }
 });
 
@@ -174,9 +194,81 @@ app.post("/api/admin/logout", (_req, res) => {
   res.clearCookie(ADMIN_COOKIE, cookieOptions(0));
   res.json({ authorized: false });
 });
+app.post("/api/admin/forgot-password", async (req, res, next) => {
+  try {
+    const username = clean(req.body.username, 254);
+    if (username.length >= 3 && username.length <= 254 && !/\s/.test(username)) {
+      const user = (await query(`SELECT id,email,display_name AS "displayName" FROM admin_users
+        WHERE lower(username)=lower($1) AND active=true LIMIT 1`, [username]))[0];
+      if (user?.email) {
+        const token = invitationToken();
+        const issued = await query(`INSERT INTO admin_password_resets(user_id,token_hash,expires_at)
+          VALUES($1,$2,now()+interval '1 hour')
+          ON CONFLICT (user_id) DO UPDATE SET token_hash=excluded.token_hash,expires_at=excluded.expires_at,created_at=now()
+          WHERE admin_password_resets.created_at < now()-interval '15 minutes'
+          RETURNING user_id`, [user.id, tokenHash(token)]);
+        if (issued.length) {
+          try { await app.locals.sendPasswordReset({ email: user.email, displayName: user.displayName, token }); }
+          catch (error) {
+            console.error("Password reset email delivery failed:", error.code || error.message);
+            await query(`DELETE FROM admin_password_resets WHERE user_id=$1 AND token_hash=$2`, [user.id, tokenHash(token)]);
+          }
+        }
+      } else if (user) {
+        await query(`INSERT INTO password_reset_requests(user_id) VALUES($1)
+          ON CONFLICT (user_id) DO UPDATE SET requested_at=now(),resolved_at=NULL
+          WHERE password_reset_requests.resolved_at IS NOT NULL
+            OR password_reset_requests.requested_at < now() - interval '15 minutes'`, [user.id]);
+      }
+    }
+    res.set("Cache-Control", "no-store").status(202).json({ message: "If this is an active email account, a password reset link will be sent. Accounts without email require administrator assistance." });
+  } catch (error) { next(error); }
+});
+app.post("/api/admin/reset-password", async (req, res, next) => {
+  try {
+    const token = clean(req.body.token, 100);
+    const password = typeof req.body.password === "string" ? req.body.password : "";
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token) || password.length < 8 || password.length > 256) {
+      return res.status(400).json({ error: "Use a valid password reset link and a password of 8 to 256 characters." });
+    }
+    const changed = await withTransaction(async transactionQuery => {
+      const reset = (await transactionQuery(`SELECT r.user_id AS "userId",u.username
+        FROM admin_password_resets r JOIN admin_users u ON u.id=r.user_id
+        WHERE r.token_hash=$1 AND r.expires_at>now() AND u.active=true FOR UPDATE OF r,u`, [tokenHash(token)]))[0];
+      if (!reset) return null;
+      await transactionQuery(`UPDATE admin_users SET password_hash=$2,must_change_password=false,session_version=session_version+1 WHERE id=$1`, [reset.userId, await hashPassword(password)]);
+      await transactionQuery(`DELETE FROM admin_password_resets WHERE user_id=$1`, [reset.userId]);
+      await transactionQuery(`DELETE FROM admin_invitations WHERE user_id=$1`, [reset.userId]);
+      await transactionQuery(`UPDATE password_reset_requests SET resolved_at=now() WHERE user_id=$1 AND resolved_at IS NULL`, [reset.userId]);
+      return reset;
+    });
+    if (!changed) return res.status(400).json({ error: "This password reset link is invalid or expired. Request a new one." });
+    res.set("Cache-Control", "no-store").json({ reset: true, username: changed.username });
+  } catch (error) { next(error); }
+});
+app.post("/api/admin/accept-invitation", async (req, res, next) => {
+  try {
+    const token = clean(req.body.token, 100);
+    const password = typeof req.body.password === "string" ? req.body.password : "";
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token) || password.length < 8 || password.length > 256) {
+      return res.status(400).json({ error: "Use a valid invitation link and a password of 8 to 256 characters." });
+    }
+    const activated = await withTransaction(async transactionQuery => {
+      const invitation = (await transactionQuery(`SELECT i.user_id AS "userId",u.username
+        FROM admin_invitations i JOIN admin_users u ON u.id=i.user_id
+        WHERE i.token_hash=$1 AND i.expires_at>now() AND u.active=true AND u.must_change_password=true FOR UPDATE OF i,u`, [tokenHash(token)]))[0];
+      if (!invitation) return null;
+      await transactionQuery(`UPDATE admin_users SET password_hash=$2,must_change_password=false,session_version=session_version+1 WHERE id=$1`, [invitation.userId, await hashPassword(password)]);
+      await transactionQuery(`DELETE FROM admin_invitations WHERE user_id=$1`, [invitation.userId]);
+      return invitation;
+    });
+    if (!activated) return res.status(400).json({ error: "This invitation is invalid or expired. Ask an administrator to resend it." });
+    res.set("Cache-Control", "no-store").json({ activated: true, username: activated.username });
+  } catch (error) { next(error); }
+});
 app.get("/api/admin/session", (req, res) => {
-  const session = getStaffSession(req);
-  res.json(session ? { authorized: true, ...session } : { authorized: false });
+  const session = req.staff;
+  res.set("Cache-Control", "no-store").json(session ? { authorized: true, ...session } : { authorized: false });
 });
 
 app.get("/api/admin/surveys", requireStaff, async (_req, res, next) => {
@@ -184,7 +276,7 @@ app.get("/api/admin/surveys", requireStaff, async (_req, res, next) => {
   catch (error) { next(error); }
 });
 
-app.post("/api/admin/surveys", requireAdministrator, async (req, res, next) => {
+app.post("/api/admin/surveys", requireSurveyManager, async (req, res, next) => {
   try {
     const survey = await withTransaction(transactionQuery => createSurvey(transactionQuery, req.body, req.staff.username));
     const surveys = await listSurveys(query);
@@ -195,7 +287,7 @@ app.post("/api/admin/surveys", requireAdministrator, async (req, res, next) => {
   }
 });
 
-app.patch("/api/admin/surveys/:id", requireAdministrator, async (req, res, next) => {
+app.patch("/api/admin/surveys/:id", requireSurveyManager, async (req, res, next) => {
   try {
     const surveyId = normalizeId(req.params.id);
     const availability = await getAvailability(query);
@@ -209,7 +301,7 @@ app.patch("/api/admin/surveys/:id", requireAdministrator, async (req, res, next)
   }
 });
 
-app.post("/api/admin/surveys/:id/publish", requireAdministrator, async (req, res, next) => {
+app.post("/api/admin/surveys/:id/publish", requireSurveyManager, async (req, res, next) => {
   try {
     const surveyId = normalizeId(req.params.id);
     const survey = await withTransaction(async transactionQuery => {
@@ -231,12 +323,12 @@ app.post("/api/admin/surveys/:id/publish", requireAdministrator, async (req, res
   }
 });
 
-app.get("/api/admin/survey-window", requireAdministrator, async (_req, res, next) => {
+app.get("/api/admin/survey-window", requireSurveyManager, async (_req, res, next) => {
   try { res.set("Cache-Control", "no-store").json(await getAvailability(query)); }
   catch (error) { next(error); }
 });
 
-app.post("/api/admin/survey-window", requireAdministrator, async (req, res, next) => {
+app.post("/api/admin/survey-window", requireSurveyManager, async (req, res, next) => {
   try {
     const status = await withTransaction(transactionQuery => changeWindow(transactionQuery, req.body, req.staff.username));
     res.set("Cache-Control", "no-store").json(status);
@@ -246,7 +338,7 @@ app.post("/api/admin/survey-window", requireAdministrator, async (req, res, next
   }
 });
 
-app.get("/api/admin/survey-results", requireStaff, async (req, res, next) => {
+app.get("/api/admin/survey-results", requireResultsReader, async (req, res, next) => {
   try {
     const surveyId = normalizeId(req.query.surveyId);
     const filters = parseFilters(req.query);
@@ -266,7 +358,7 @@ app.get("/api/admin/survey-results", requireStaff, async (req, res, next) => {
   }
 });
 
-app.get("/api/admin/survey-results.csv", requireStaff, async (req, res, next) => {
+app.get("/api/admin/survey-results.csv", requireResultsReader, async (req, res, next) => {
   try {
     const surveyId = normalizeId(req.query.surveyId);
     const survey = await getSurvey(query, surveyId);
@@ -281,7 +373,7 @@ app.get("/api/admin/survey-results.csv", requireStaff, async (req, res, next) =>
   } catch (error) { next(error); }
 });
 
-app.get("/api/admin/questions", requireAdministrator, async (req, res, next) => {
+app.get("/api/admin/questions", requireSurveyManager, async (req, res, next) => {
   try {
     const surveyId = normalizeId(req.query.surveyId);
     const [sections, openQuestions] = await Promise.all([
@@ -292,7 +384,7 @@ app.get("/api/admin/questions", requireAdministrator, async (req, res, next) => 
   } catch (error) { next(error); }
 });
 
-app.post("/api/admin/questions", requireAdministrator, async (req, res, next) => {
+app.post("/api/admin/questions", requireSurveyManager, async (req, res, next) => {
   try {
     const surveyId = normalizeId(req.body.surveyId);
     await getSurvey(query, surveyId);
@@ -319,7 +411,7 @@ app.post("/api/admin/questions", requireAdministrator, async (req, res, next) =>
   }
 });
 
-app.patch("/api/admin/questions/:code", requireAdministrator, async (req, res, next) => {
+app.patch("/api/admin/questions/:code", requireSurveyManager, async (req, res, next) => {
   try {
     const surveyId = normalizeId(req.body.surveyId);
     const code = clean(req.params.code, 20).toUpperCase();
@@ -342,8 +434,20 @@ app.patch("/api/admin/questions/:code", requireAdministrator, async (req, res, n
 });
 
 app.get("/api/admin/users", requireAdministrator, async (_req, res, next) => {
-  try { res.json({ users: await query(`SELECT id,username,display_name AS "displayName",role,active,created_at AS "createdAt" FROM admin_users ORDER BY created_at DESC`) }); }
+  try { res.set("Cache-Control", "no-store").json({ users: await query(`SELECT u.id,u.username,u.email,u.must_change_password AS "mustChangePassword",u.display_name AS "displayName",u.role,u.active,
+    u.created_at AS "createdAt",pr.requested_at AS "resetRequestedAt"
+    FROM admin_users u LEFT JOIN password_reset_requests pr ON pr.user_id=u.id AND pr.resolved_at IS NULL
+    ORDER BY (pr.requested_at IS NOT NULL) DESC,pr.requested_at DESC NULLS LAST,u.created_at DESC,u.id DESC`) }); }
   catch (error) { next(error); }
+});
+
+app.get("/api/admin/invitation-status", requireAdministrator, (_req, res) => {
+  try {
+    const settings = invitationSettings();
+    res.set("Cache-Control", "no-store").json({ configured: true, source: settings.source || "smtp" });
+  } catch (error) {
+    res.set("Cache-Control", "no-store").json({ configured: false, message: error.message });
+  }
 });
 
 app.get("/api/admin/sectors", requireAdministrator, async (_req, res, next) => {
@@ -413,18 +517,116 @@ app.post("/api/admin/sectors/:id/toggle", requireAdministrator, async (req, res,
 });
 app.post("/api/admin/users", requireAdministrator, async (req, res, next) => {
   try {
-    const username = clean(req.body.username, 80);
+    invitationSettings();
+    const email = clean(req.body.email, 254).toLowerCase();
     const displayName = clean(req.body.displayName, 120);
-    const password = String(req.body.password || "");
     const role = clean(req.body.role, 20);
-    if (!/^[a-zA-Z0-9._-]{3,80}$/.test(username) || !displayName || password.length < 10 || !["admin", "viewer"].includes(role)) return res.status(400).json({ error: "Use a valid username, name, role and a password of at least 10 characters." });
-    const rows = await query(
-      `INSERT INTO admin_users(username,password_hash,display_name,role) VALUES($1,$2,$3,$4) RETURNING id,username,display_name AS "displayName",role,active`,
-      [username, await hashPassword(password), displayName, role],
-    );
-    res.status(201).json({ user: rows[0] });
+    if (!EMAIL_PATTERN.test(email) || email.length > 254 || !displayName || !["admin", "survey_admin", "viewer"].includes(role)) return res.status(400).json({ error: "Use a valid email address, display name and role." });
+    const token = invitationToken();
+    const user = await withTransaction(async transactionQuery => {
+      const rows = await transactionQuery(
+        `INSERT INTO admin_users(username,email,password_hash,display_name,role,must_change_password)
+         VALUES($1,$1,$2,$3,$4,true) RETURNING id,username,email,display_name AS "displayName",role,active,must_change_password AS "mustChangePassword"`,
+        [email, await hashPassword(invitationToken()), displayName, role],
+      );
+      await transactionQuery(`INSERT INTO admin_invitations(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '48 hours')`, [rows[0].id, tokenHash(token)]);
+      return rows[0];
+    });
+    try { await app.locals.sendInvitation({ email, displayName, token }); }
+    catch (error) {
+      console.error("Invitation email delivery failed:", error.code || error.message);
+      return res.status(502).json({ error: "The account was created, but the invitation email could not be sent. Check mail settings, then use Resend invitation in Users.", userCreated: true });
+    }
+    res.set("Cache-Control", "no-store").status(201).json({ user, invitationSent: true });
   } catch (error) {
-    if (error.code === "23505") return res.status(409).json({ error: "That username already exists." });
+    if (error.code === "23505") return res.status(409).json({ error: "That email is already registered." });
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    next(error);
+  }
+});
+
+app.post("/api/admin/users/:id/resend-invitation", requireAdministrator, async (req, res, next) => {
+  try {
+    invitationSettings();
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id < 1) return res.status(400).json({ error: "Select a valid user." });
+    const token = invitationToken();
+    const user = await withTransaction(async transactionQuery => {
+      const rows = await transactionQuery(`SELECT id,email,display_name AS "displayName",active,must_change_password AS "mustChangePassword" FROM admin_users WHERE id=$1 FOR UPDATE`, [id]);
+      const target = rows[0];
+      if (!target?.email || !target.active || !target.mustChangePassword) return null;
+      await transactionQuery(`INSERT INTO admin_invitations(user_id,token_hash,expires_at) VALUES($1,$2,now()+interval '48 hours')
+        ON CONFLICT (user_id) DO UPDATE SET token_hash=excluded.token_hash,expires_at=excluded.expires_at,created_at=now()`, [id, tokenHash(token)]);
+      return target;
+    });
+    if (!user) return res.status(409).json({ error: "This account does not need an invitation." });
+    try { await app.locals.sendInvitation({ email: user.email, displayName: user.displayName, token }); }
+    catch (error) {
+      console.error("Invitation email delivery failed:", error.code || error.message);
+      return res.status(502).json({ error: "The invitation email could not be sent. Check mail settings and retry." });
+    }
+    res.set("Cache-Control", "no-store").json({ invitationSent: true });
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    next(error);
+  }
+});
+
+app.patch("/api/admin/users/:id", requireAdministrator, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const displayName = clean(req.body.displayName, 120);
+    const role = clean(req.body.role, 20);
+    const active = req.body.active;
+    if (!Number.isSafeInteger(id) || id < 1 || !displayName || !["admin", "survey_admin", "viewer"].includes(role) || typeof active !== "boolean") {
+      return res.status(400).json({ error: "Enter a display name, role, and active status." });
+    }
+    const user = await withTransaction(async transactionQuery => {
+      const rows = await transactionQuery(`SELECT id,username,role,active FROM admin_users WHERE id=$1 FOR UPDATE`, [id]);
+      const target = rows[0];
+      if (!target) return null;
+      if (target.username.toLowerCase() === req.staff.username.toLowerCase() && (!active || role !== "admin")) {
+        throw Object.assign(new Error("You cannot remove your own administrator access."), { statusCode: 409 });
+      }
+      if (target.role === "admin" && target.active && (!active || role !== "admin")) {
+        const count = await transactionQuery(`SELECT count(*)::integer AS count FROM admin_users WHERE role='admin' AND active=true`);
+        if (count[0].count <= 1) throw Object.assign(new Error("At least one active administrator must remain."), { statusCode: 409 });
+      }
+      const updated = await transactionQuery(`UPDATE admin_users SET display_name=$2,role=$3,active=$4,
+        session_version=session_version+1 WHERE id=$1
+        RETURNING id,username,display_name AS "displayName",role,active,created_at AS "createdAt"`,
+      [id, displayName, role, active]);
+      return updated[0];
+    });
+    if (!user) return res.status(404).json({ error: "User not found." });
+    res.set("Cache-Control", "no-store").json({ user });
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    next(error);
+  }
+});
+
+app.post("/api/admin/users/:id/reset-password", requireAdministrator, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const password = typeof req.body.password === "string" ? req.body.password : "";
+    if (!Number.isSafeInteger(id) || id < 1 || password.length < 8 || password.length > 256) {
+      return res.status(400).json({ error: "Enter a new password of 8 to 256 characters." });
+    }
+    const user = await withTransaction(async transactionQuery => {
+      const target = (await transactionQuery(`SELECT id,must_change_password AS "mustChangePassword" FROM admin_users WHERE id=$1 FOR UPDATE`, [id]))[0];
+      if (!target) return null;
+      if (target.mustChangePassword) throw Object.assign(new Error("Resend the invitation so this user can set their own first password."), { statusCode: 409 });
+      const rows = await transactionQuery(`UPDATE admin_users SET password_hash=$2,session_version=session_version+1 WHERE id=$1
+        RETURNING id,username`, [id, await hashPassword(password)]);
+      if (!rows.length) return null;
+      await transactionQuery(`UPDATE password_reset_requests SET resolved_at=now() WHERE user_id=$1 AND resolved_at IS NULL`, [id]);
+      return rows[0];
+    });
+    if (!user) return res.status(404).json({ error: "User not found." });
+    res.set("Cache-Control", "no-store").json({ reset: true, username: user.username });
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
     next(error);
   }
 });

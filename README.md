@@ -19,6 +19,20 @@ Open `http://localhost:3000`. The API runs on `http://127.0.0.1:5001`, and Vite 
 
 Change `MINISTRY_ADMIN_PASSWORD` and `MINISTRY_ADMIN_SESSION` before using the system outside local development.
 
+## User management
+
+The **Users** section is available only to an `admin` account. Administrators invite users by email, edit roles, deactivate or reactivate accounts, and reset passwords. A new account receives a single-use invitation link valid for 48 hours. The user must set an 8–256-character password from that link before the first sign-in; no temporary password is emailed. Administrators can resend an invitation, invalidating the previous link. Existing username-based accounts continue to sign in unchanged.
+
+The login page includes **Forgot password?**. For an active account with an email address, the user receives a single-use password-change link through the FTMS mail connection. The link expires in one hour, and repeat requests are limited to one email per 15 minutes. After choosing a new password, existing sessions end. The request page gives the same confirmation for known and unknown accounts. Legacy username-only accounts have no recovery email, so their request appears in the administrator's **Users** list for identity verification and a manual reset. If the only administrator has no email and is locked out, an authorized server administrator must recover the account directly. Normal backend startup adds `admin_password_resets`, `password_reset_requests` and `admin_invitations` without clearing existing users or responses.
+
+Invitation email can reuse FTMS delivery: set `FTMS_EMAIL_ENV_FILE` in the survey's `backend/.env` to the absolute path of FTMS's `backend/.env`. The survey reads FTMS's `EMAIL_USER` and `EMAIL_PASS` at send time and uses FTMS's Gmail SMTP host, without copying the credentials into this repository. The survey service account needs read permission on that file. Also set `APP_PUBLIC_URL` to the survey origin; in production it must be public HTTPS. If no FTMS file is configured, the standalone `SMTP_*` settings remain available. If delivery fails after account creation, the account remains unable to sign in; correct the mail settings and select **Resend invitation** in Users.
+
+- `admin`: full access, including user management, survey administration, settings, questions, results and CSV export.
+- `survey_admin`: survey administration, settings and questions. No results or user management access.
+- `viewer`: results and CSV export only.
+
+Changing a role, account status or password ends that user's existing signed-in sessions. An administrator cannot remove their own administrator access, and the API prevents removal of the last active administrator. Existing accounts keep their roles during the upgrade; use **Users** to reassign an account intentionally. The backend's normal schema initialization adds the `survey_admin` role and `session_version` column. Running `npm run db:migrate` also refreshes the environment-configured `admin` account password, so use it only when that is intended.
+
 ## Questionnaire coverage
 
 Every respondent completes evaluator information, then 69 statements in order: 23 Senior Leadership statements, 28 Middle Leadership statements, and 18 Lower Leadership statements. The seven overall reform questions have been removed from the active survey. Expert is a respondent category, not a fourth assessment section: the source questionnaire provides only three leadership sections. The form uses 16 pages, section-local question numbering (Senior 1–23, Middle 1–28, Lower 1–18), and the existing English/Amharic rating matrix and page-level Clear choices control.

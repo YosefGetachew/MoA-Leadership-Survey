@@ -42,7 +42,8 @@ test('drafts retain demographics and ratings but not removed fields',()=>{
   assert.deepEqual(draft.answers,{HL01:6,ML01:4,LL01:3});
   assert.equal(draft.evaluatorLevel,'expert');
   assert.deepEqual(draft.demographics,{sex:'male',age:'30',workExperience:'0'});
-  assert.deepEqual(Object.keys(draft).sort(),['answers','demographics','evaluatorLevel']);
+  assert.deepEqual(Object.keys(draft).sort(),['answers','demographics','evaluatorLevel','openEndedAnswers']);
+  assert.deepEqual(draft.openEndedAnswers,{});
   assert.equal(sanitizeDraft({evaluatorLevel:'invalid'},sections).evaluatorLevel,'');
   assert.equal(sanitizeDraft(null,sections).evaluatorLevel,'');
 });

@@ -5,6 +5,7 @@ import SurveyWindowAdmin, { PeriodInformation, windowCopy, type Availability } f
 import SurveyPeriodNotice from "./SurveyPeriodNotice";
 import SurveyCatalog, { type SurveyDefinition } from "./SurveyCatalog";
 import SurveySettings from "./SurveySettings";
+import UserManagement from "./UserManagement";
 import { QRCodeSVG } from "qrcode.react";
 import { amharicCopy, amharicLevels } from "./amharic";
 import { buildSurveyPages, sectionTransition, DRAFT_KEY, emptyDemographics, demographicIssues, validDemographics, evaluatorLevels, sanitizeDraft, SURVEY_VERSION, type Answers, type OpenEndedAnswers, type Demographics, type EvaluatorLevel, type LeadershipLevel, type MatrixQuestion, type SurveySection } from "./surveyFlow";
@@ -12,11 +13,13 @@ type Language = "en" | "am";
 
 interface AdminSession {
   authorized: boolean;
+  username?: string;
   displayName?: string;
   role?: string;
 }
 
-function AdminSectionIcon({ section }: { section: "questions" | "survey" | "settings" | "statistics" }) {
+function AdminSectionIcon({ section }: { section: "questions" | "survey" | "settings" | "statistics" | "users" }) {
+  if (section === "users") return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3" /><path d="M3 20v-2a6 6 0 0 1 12 0v2M17 5a3 3 0 0 1 0 6M17 14a5 5 0 0 1 4 5v1" /></svg>;
   if (section === "questions") return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3.5h10a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2Z" /><path d="M8.5 8h7M8.5 12h7M8.5 16h4" /></svg>;
   if (section === "survey") return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" /><path d="M7.5 3v4M16.5 3v4M3.5 9.5h17" /><path d="m8 15 2 2 5-5" /></svg>;
   if (section === "statistics") return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></svg>;
@@ -560,13 +563,31 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
 
 function Admin({ onExit }: { onExit: () => void }) {
   const [session, setSession] = useState<AdminSession>({ authorized: false });
-  const [adminSection, setAdminSection] = useState<"questions" | "survey" | "settings" | "statistics">("survey");
+  const [adminSection, setAdminSection] = useState<"questions" | "survey" | "settings" | "statistics" | "users">("survey");
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loginNotice, setLoginNotice] = useState("");
+  const [forgotPassword, setForgotPassword] = useState(false);
+  const [resetRequested, setResetRequested] = useState(false);
+  const [requestingReset, setRequestingReset] = useState(false);
+  const [invitationToken] = useState(() => {
+    const match = window.location.hash.match(/^#admin\/invite\/([A-Za-z0-9_-]{43})$/);
+    return match?.[1] || "";
+  });
+  const [resetToken] = useState(() => window.location.hash.match(/^#admin\/reset\/([A-Za-z0-9_-]{43})$/)?.[1] || "");
+  const [acceptingInvitation, setAcceptingInvitation] = useState(Boolean(invitationToken));
+  const [changingForgottenPassword, setChangingForgottenPassword] = useState(Boolean(resetToken));
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [invitationBusy, setInvitationBusy] = useState(false);
   const [surveys, setSurveys] = useState<SurveyDefinition[]>([]);
   const [selectedSurveyId, setSelectedSurveyId] = useState("");
+
+  useEffect(() => {
+    if (invitationToken || resetToken) window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}#admin`);
+  }, [invitationToken, resetToken]);
 
   useEffect(() => {
     api<AdminSession>("/api/admin/session")
@@ -595,6 +616,42 @@ function Admin({ onExit }: { onExit: () => void }) {
     } catch (loginError) { setError(loginError instanceof Error ? loginError.message : "Sign in failed."); }
   }
 
+  async function requestPasswordReset(event: FormEvent) {
+    event.preventDefault();
+    setError(""); setRequestingReset(true);
+    try {
+      await api("/api/admin/forgot-password", { method: "POST", body: JSON.stringify({ username }) });
+      setResetRequested(true);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to send the request. Try again later."); }
+    finally { setRequestingReset(false); }
+  }
+
+  async function acceptInvitation(event: FormEvent) {
+    event.preventDefault(); setError("");
+    if (newPassword !== confirmNewPassword) { setError("Passwords do not match."); return; }
+    if (newPassword.length < 8) { setError("Use at least 8 characters."); return; }
+    setInvitationBusy(true);
+    try {
+      const result = await api<{ username: string }>("/api/admin/accept-invitation", { method: "POST", body: JSON.stringify({ token: invitationToken, password: newPassword }) });
+      setUsername(result.username); setNewPassword(""); setConfirmNewPassword(""); setAcceptingInvitation(false);
+      setResetRequested(false); setLoginNotice("Your password is set. Sign in with your email address.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to activate your account."); }
+    finally { setInvitationBusy(false); }
+  }
+
+  async function completePasswordReset(event: FormEvent) {
+    event.preventDefault(); setError("");
+    if (newPassword !== confirmNewPassword) { setError("Passwords do not match."); return; }
+    if (newPassword.length < 8) { setError("Use at least 8 characters."); return; }
+    setInvitationBusy(true);
+    try {
+      const result = await api<{ username: string }>("/api/admin/reset-password", { method: "POST", body: JSON.stringify({ token: resetToken, password: newPassword }) });
+      setUsername(result.username); setNewPassword(""); setConfirmNewPassword(""); setChangingForgottenPassword(false);
+      setSession({ authorized: false }); setForgotPassword(false); setLoginNotice("Your password has been changed. Sign in with your new password.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unable to change your password."); }
+    finally { setInvitationBusy(false); }
+  }
+
   async function logout() {
     await api("/api/admin/logout", { method: "POST" });
     setSession({ authorized: false });
@@ -602,33 +659,58 @@ function Admin({ onExit }: { onExit: () => void }) {
 
 
   if (loading) return <div className="center-screen"><div className="spinner" /><p>Loading administration…</p></div>;
+  if (changingForgottenPassword) return <main className="admin-login-shell"><form className="login-card" onSubmit={completePasswordReset}>
+    <div className="brand-mark large" aria-hidden="true">MoA</div><p className="eyebrow">Account recovery</p><h1>Choose a new password</h1>
+    <p>Enter a new password for your survey administration account. This link can be used once.</p>
+    <label>New password<input type="password" value={newPassword} onChange={event => setNewPassword(event.target.value)} autoComplete="new-password" minLength={8} maxLength={256} required /></label>
+    <label>Confirm new password<input type="password" value={confirmNewPassword} onChange={event => setConfirmNewPassword(event.target.value)} autoComplete="new-password" minLength={8} maxLength={256} required /></label>
+    {error && <div className="error-banner" role="alert">{error}</div>}
+    <button className="primary-button" type="submit" disabled={invitationBusy}>{invitationBusy ? "Saving…" : "Change password"}</button>
+  </form></main>;
+  if (acceptingInvitation) return <main className="admin-login-shell"><form className="login-card" onSubmit={acceptInvitation}>
+    <div className="brand-mark large" aria-hidden="true">MoA</div><p className="eyebrow">Account invitation</p><h1>Set your password</h1>
+    <p>Welcome. Create your password before your first sign-in. This invitation can be used once.</p>
+    <label>New password<input type="password" value={newPassword} onChange={event => setNewPassword(event.target.value)} autoComplete="new-password" minLength={8} maxLength={256} required /></label>
+    <label>Confirm password<input type="password" value={confirmNewPassword} onChange={event => setConfirmNewPassword(event.target.value)} autoComplete="new-password" minLength={8} maxLength={256} required /></label>
+    {error && <div className="error-banner" role="alert">{error}</div>}
+    <button className="primary-button" type="submit" disabled={invitationBusy}>{invitationBusy ? "Saving…" : "Set password and continue"}</button>
+  </form></main>;
   if (!session.authorized) {
     return (
       <main className="admin-login-shell">
-        <form className="login-card" onSubmit={login}>
+        <form className="login-card" onSubmit={forgotPassword ? requestPasswordReset : login}>
           <button type="button" className="back-link" onClick={onExit}>← Return to survey</button>
           <div className="brand-mark large" aria-hidden="true">MoA</div>
           <p className="eyebrow">Restricted access</p>
-          <h1>Survey administration</h1>
-          <p>Sign in to review leadership questionnaire responses and evaluator information.</p>
-          <label>Username<input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required /></label>
-          <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>
+          <h1>{forgotPassword ? "Forgot password" : "Survey administration"}</h1>
+          <p>{forgotPassword ? "Enter the email address for your account. We will send a one-time password change link if the account is active." : "Sign in with your email address. Existing accounts may continue using their username."}</p>
+          <label>Email or username<input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" required /></label>
+          {!forgotPassword && <label>Password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>}
+          {forgotPassword && resetRequested && <div className="question-success" role="status">If this is an active email account, check your inbox for a password change link. The link expires in one hour. Existing accounts without an email address should contact an administrator.</div>}
+          {loginNotice && <div className="question-success" role="status">{loginNotice}</div>}
           {error && <div className="error-banner" role="alert">{error}</div>}
-          <button className="primary-button" type="submit">Sign in</button>
+          <button className="primary-button" type="submit" disabled={requestingReset}>{forgotPassword ? requestingReset ? "Sending…" : "Request password reset" : "Sign in"}</button>
+          <button className="forgot-password-link" type="button" onClick={() => { setForgotPassword(value => !value); setResetRequested(false); setError(""); setPassword(""); }}>{forgotPassword ? "← Back to sign in" : "Forgot password?"}</button>
+          {forgotPassword && <p className="forgot-password-note">If the message does not arrive, check spam. Requests are limited to one email every 15 minutes. Existing accounts without an email address need administrator assistance.</p>}
         </form>
       </main>
     );
   }
 
-  const adminSections = session.role === "admin" ? [
+  const surveySections = [
     { value: "survey" as const, label: "1. Survey Admin", description: "Create, publish and schedule" },
     { value: "settings" as const, label: "2. Settings", description: "Name, introduction and sections" },
     { value: "questions" as const, label: "3. Questions", description: "Edit the questionnaire" },
+  ];
+  const adminSections = session.role === "admin" ? [
+    ...surveySections,
     { value: "statistics" as const, label: "4. Results", description: "Analyse and export responses" },
-  ] : [{ value: "statistics" as const, label: "Results", description: "Analyse and export responses" }];
-  const activeAdminSection = adminSections.some(item => item.value === adminSection) ? adminSection : "statistics";
+    { value: "users" as const, label: "5. Users", description: "Roles and passwords" },
+  ] : session.role === "survey_admin" ? surveySections : [{ value: "statistics" as const, label: "Results", description: "Analyse and export responses" }];
+  const activeAdminSection = adminSections.some(item => item.value === adminSection) ? adminSection : adminSections[0].value;
   const selectedSurvey = surveys.find(survey => survey.id === selectedSurveyId) || surveys[0];
-  const adminHeading = activeAdminSection === "questions" ? "Questionnaire management" : activeAdminSection === "survey" ? "Survey administration" : activeAdminSection === "settings" ? "Survey settings" : "Survey results";
+  const adminHeading = activeAdminSection === "questions" ? "Questionnaire management" : activeAdminSection === "survey" ? "Survey administration" : activeAdminSection === "settings" ? "Survey settings" : activeAdminSection === "users" ? "User management" : "Survey results";
+  const canManageSurvey = session.role === "admin" || session.role === "survey_admin";
 
   return (
     <div className="admin-app">
@@ -641,20 +723,21 @@ function Admin({ onExit }: { onExit: () => void }) {
           {adminSections.map(item => <button type="button" className={activeAdminSection === item.value ? "active" : ""} aria-current={activeAdminSection === item.value ? "page" : undefined} key={item.value} onClick={() => setAdminSection(item.value)}><span className="admin-nav-icon"><AdminSectionIcon section={item.value} /></span><span className="admin-nav-copy"><strong>{item.label}</strong><small>{item.description}</small></span></button>)}
         </nav>
         {error && <div className="error-banner">{error}</div>}
-        {selectedSurvey && <SurveyCatalog surveys={surveys} selectedId={selectedSurvey.id} canManage={session.role === "admin" && activeAdminSection === "survey"} onSelect={setSelectedSurveyId} onChange={(next, selectedId) => { setSurveys(next); if (selectedId) setSelectedSurveyId(selectedId); }} />}
-        {!selectedSurvey && <p className="empty-state">Loading survey catalogue…</p>}
-        {session.role === "admin" && activeAdminSection === "survey" && selectedSurvey?.published && <SurveyWindowAdmin surveyName={selectedSurvey.nameEn} />}
-        {session.role === "admin" && activeAdminSection === "survey" && selectedSurvey && !selectedSurvey.published && <section className="admin-panel survey-draft-panel"><span>Draft survey</span><h2>Prepare this survey, then publish it</h2><p>First review its name and instructions, then check its questions. Publishing selects it for the public link but does not open collection.</p><div className="survey-draft-actions"><button className="secondary-button" onClick={() => setAdminSection("settings")}>1. Review settings</button><button className="secondary-button" onClick={() => setAdminSection("questions")}>2. Review questions</button></div></section>}
-        {session.role === "admin" && activeAdminSection === "questions" && selectedSurvey && <QuestionManager key={selectedSurvey.id} surveyId={selectedSurvey.id} surveyName={selectedSurvey.nameEn} surveySettings={selectedSurvey.settings} />}
-        {session.role === "admin" && activeAdminSection === "settings" && selectedSurvey && <SurveySettings key={selectedSurvey.id} survey={selectedSurvey} onChange={next => setSurveys(next)} />}
+        {activeAdminSection !== "users" && selectedSurvey && <SurveyCatalog surveys={surveys} selectedId={selectedSurvey.id} canManage={canManageSurvey && activeAdminSection === "survey"} onSelect={setSelectedSurveyId} onChange={(next, selectedId) => { setSurveys(next); if (selectedId) setSelectedSurveyId(selectedId); }} />}
+        {activeAdminSection !== "users" && !selectedSurvey && <p className="empty-state">Loading survey catalogue…</p>}
+        {canManageSurvey && activeAdminSection === "survey" && selectedSurvey?.published && <SurveyWindowAdmin surveyName={selectedSurvey.nameEn} />}
+        {canManageSurvey && activeAdminSection === "survey" && selectedSurvey && !selectedSurvey.published && <section className="admin-panel survey-draft-panel"><span>Draft survey</span><h2>Prepare this survey, then publish it</h2><p>First review its name and instructions, then check its questions. Publishing selects it for the public link but does not open collection.</p><div className="survey-draft-actions"><button className="secondary-button" onClick={() => setAdminSection("settings")}>1. Review settings</button><button className="secondary-button" onClick={() => setAdminSection("questions")}>2. Review questions</button></div></section>}
+        {canManageSurvey && activeAdminSection === "questions" && selectedSurvey && <QuestionManager key={selectedSurvey.id} surveyId={selectedSurvey.id} surveyName={selectedSurvey.nameEn} surveySettings={selectedSurvey.settings} />}
+        {canManageSurvey && activeAdminSection === "settings" && selectedSurvey && <SurveySettings key={selectedSurvey.id} survey={selectedSurvey} onChange={next => setSurveys(next)} />}
         {activeAdminSection === "statistics" && selectedSurvey && <ResultsDashboard key={selectedSurvey.id} surveyId={selectedSurvey.id} surveyName={selectedSurvey.nameEn} />}
+        {session.role === "admin" && activeAdminSection === "users" && <UserManagement currentUsername={session.username || ""} onSelfChange={() => { setSession({ authorized: false }); setError("Your account changed. Sign in again."); }} />}
       </main>
     </div>
   );
 }
 
 export default function App() {
-  const [view, setView] = useState<"survey" | "admin">(window.location.hash === "#admin" ? "admin" : "survey");
+  const [view, setView] = useState<"survey" | "admin">(window.location.hash.startsWith("#admin") ? "admin" : "survey");
   function changeView(next: "survey" | "admin") { window.location.hash = next === "admin" ? "admin" : ""; setView(next); window.scrollTo(0, 0); }
   return view === "admin" ? <Admin onExit={() => changeView("survey")} /> : <Survey onAdmin={() => changeView("admin")} />;
 }

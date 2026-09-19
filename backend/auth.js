@@ -1,7 +1,7 @@
 const crypto = require("node:crypto");
 
 const ADMIN_COOKIE = "moa_reform_admin";
-const VALID_ROLES = new Set(["admin", "viewer"]);
+const VALID_ROLES = new Set(["admin", "survey_admin", "viewer"]);
 
 function signature(payload) {
   const secret = process.env.MINISTRY_ADMIN_SESSION;
@@ -9,11 +9,12 @@ function signature(payload) {
   return crypto.createHmac("sha256", secret).update(payload).digest("base64url");
 }
 
-function createStaffSession({ username, displayName, role }) {
+function createStaffSession({ username, displayName, role, sessionVersion = 0 }) {
   const session = {
     username,
     displayName,
     role,
+    sessionVersion,
     expiresAt: Date.now() + 8 * 60 * 60 * 1000,
   };
   const payload = Buffer.from(JSON.stringify(session), "utf8").toString("base64url");
@@ -39,18 +40,35 @@ function getStaffSession(req) {
 }
 
 function requireStaff(req, res, next) {
-  const session = getStaffSession(req);
+  const session = req.staff;
   if (!session) return res.status(401).json({ error: "Staff access required." });
   req.staff = session;
   next();
 }
 
 function requireAdministrator(req, res, next) {
-  const session = getStaffSession(req);
+  const session = req.staff;
   if (!session || session.role !== "admin") {
     return res.status(403).json({ error: "Administrator access required." });
   }
   req.staff = session;
+  next();
+}
+
+function requireSurveyManager(req, res, next) {
+  const session = req.staff;
+  if (!session || !["admin", "survey_admin"].includes(session.role)) {
+    return res.status(403).json({ error: "Survey management access required." });
+  }
+  next();
+}
+
+function requireResultsReader(req, res, next) {
+  const session = req.staff;
+  if (!session) return res.status(401).json({ error: "Staff access required." });
+  if (!["admin", "viewer"].includes(session.role)) {
+    return res.status(403).json({ error: "Results access required." });
+  }
   next();
 }
 
@@ -60,4 +78,6 @@ module.exports = {
   getStaffSession,
   requireStaff,
   requireAdministrator,
+  requireSurveyManager,
+  requireResultsReader,
 };

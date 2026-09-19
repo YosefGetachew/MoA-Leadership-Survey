@@ -6,6 +6,16 @@ function createMockDb() {
   let writes = 0;
   const periods = [];
   const surveys = [{ id: '1', nameEn: 'Leadership Assessment Survey', nameAm: 'የአመራር ምዘና ዳሰሳ', slug: 'leadership-assessment', settings: {}, published: true, archived: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }];
+  const users = [
+    { id: 1, username: 'admin', displayName: 'Administrator', role: 'admin', active: true, sessionVersion: 0 },
+    { id: 2, username: 'viewer', displayName: 'Viewer', role: 'viewer', active: true, sessionVersion: 0 },
+    { id: 3, username: 'test-admin', displayName: 'Test Administrator', role: 'admin', active: true, sessionVersion: 0 },
+    { id: 4, username: 'survey_admin', displayName: 'Survey Administrator', role: 'survey_admin', active: true, sessionVersion: 0 },
+  ];
+  const resetRequests = new Map();
+  const passwordResets = new Map();
+  const invitations = new Map();
+  const publicUser = ({ id, username, email, mustChangePassword, displayName, role, active, createdAt }) => ({ id, username, email, mustChangePassword, displayName, role, active, createdAt });
   const control = { surveyId: '1', periodId: null, revision: 0 };
   let clock = null;
   const now = () => clock ?? Date.now();
@@ -15,6 +25,71 @@ function createMockDb() {
     ...['GQ1', 'GQ2', 'GQ3'].map((code, index) => ({ surveyId: '1', code, leadershipLevel: 'open_ended', textEn: `Open question ${index + 1}`, textAm: `ክፍት ጥያቄ ${index + 1}`, dimension: 'Qualitative feedback', sortOrder: (index + 1) * 10, active: true, updatedAt: new Date(now()).toISOString(), updatedBy: null })),
   ];
   async function query(sql, values = []) {
+    if (sql.includes('FROM admin_users u LEFT JOIN password_reset_requests')) return [...users].sort((a, b) => Number(Boolean(resetRequests.get(b.id)?.requestedAt && !resetRequests.get(b.id)?.resolvedAt)) - Number(Boolean(resetRequests.get(a.id)?.requestedAt && !resetRequests.get(a.id)?.resolvedAt)) || b.id - a.id).map(user => ({ ...publicUser(user), resetRequestedAt: resetRequests.get(user.id)?.resolvedAt ? null : resetRequests.get(user.id)?.requestedAt || null }));
+    if (sql.startsWith('INSERT INTO password_reset_requests(')) {
+      const user = users.find(item => item.id === Number(values[0]) && item.active);
+      if (user) {
+        const existing = resetRequests.get(user.id);
+        if (!existing || existing.resolvedAt || Date.parse(existing.requestedAt) < now() - 15 * 60 * 1000) resetRequests.set(user.id, { requestedAt: new Date(now()).toISOString(), resolvedAt: null });
+      }
+      return [];
+    }
+    if (sql.startsWith('SELECT id,email,display_name AS "displayName" FROM admin_users')) return users.filter(user => user.username.toLowerCase() === String(values[0]).toLowerCase() && user.active);
+    if (sql.startsWith('INSERT INTO admin_password_resets(')) {
+      const userId = Number(values[0]);
+      const existing = passwordResets.get(userId);
+      if (existing && Date.parse(existing.createdAt) >= now() - 15 * 60 * 1000) return [];
+      passwordResets.set(userId, { userId, tokenHash: values[1], createdAt: new Date(now()).toISOString(), expiresAt: new Date(now() + 60 * 60 * 1000).toISOString() });
+      return [{ user_id: userId }];
+    }
+    if (sql.includes('FROM admin_password_resets r JOIN admin_users u')) {
+      const reset = [...passwordResets.values()].find(item => item.tokenHash === values[0] && Date.parse(item.expiresAt) > now());
+      const user = users.find(item => item.id === reset?.userId);
+      return user?.active ? [{ userId: user.id, username: user.username }] : [];
+    }
+    if (sql.startsWith('DELETE FROM admin_password_resets')) {
+      const record = passwordResets.get(Number(values[0]));
+      if (record && (values.length === 1 || record.tokenHash === values[1])) passwordResets.delete(Number(values[0]));
+      return [];
+    }
+    if (sql.startsWith('UPDATE password_reset_requests SET resolved_at')) {
+      const request = resetRequests.get(Number(values[0]));
+      if (request && !request.resolvedAt) request.resolvedAt = new Date(now()).toISOString();
+      return [];
+    }
+    if (sql.includes('FROM admin_users WHERE lower(username)=lower($1)')) return users.filter(user => user.username.toLowerCase() === String(values[0]).toLowerCase());
+    if (sql.includes('FROM admin_invitations i JOIN admin_users u')) {
+      const invitation = [...invitations.values()].find(item => item.tokenHash === values[0] && Date.parse(item.expiresAt) > now());
+      const user = users.find(item => item.id === invitation?.userId);
+      return user?.active && user.mustChangePassword ? [{ userId: user.id, username: user.username }] : [];
+    }
+    if (sql.startsWith('INSERT INTO admin_invitations(')) {
+      invitations.set(Number(values[0]), { userId: Number(values[0]), tokenHash: values[1], expiresAt: new Date(now() + 48 * 60 * 60 * 1000).toISOString() });
+      return [];
+    }
+    if (sql.startsWith('DELETE FROM admin_invitations')) { invitations.delete(Number(values[0])); return []; }
+    if (sql.startsWith('SELECT id,email,display_name AS "displayName"')) return users.filter(user => user.id === Number(values[0]));
+    if (sql.includes('FROM admin_users WHERE id=$1 FOR UPDATE')) return users.filter(user => user.id === Number(values[0]));
+    if (sql.includes("count(*)::integer AS count FROM admin_users")) return [{ count: users.filter(user => user.active && user.role === 'admin').length }];
+    if (sql.startsWith('INSERT INTO admin_users(')) {
+      const [username, passwordHash, displayName, role] = values;
+      if (users.some(user => user.username.toLowerCase() === username.toLowerCase())) throw Object.assign(new Error('duplicate'), { code: '23505' });
+      const user = { id: users.length + 1, username, email: username, mustChangePassword: true, passwordHash, displayName, role, active: true, sessionVersion: 0, createdAt: new Date(now()).toISOString() };
+      users.push(user); return [publicUser(user)];
+    }
+    if (sql.startsWith('UPDATE admin_users SET display_name=$2')) {
+      const user = users.find(item => item.id === Number(values[0]));
+      if (!user) return [];
+      Object.assign(user, { displayName: values[1], role: values[2], active: values[3], sessionVersion: user.sessionVersion + 1 });
+      return [publicUser(user)];
+    }
+    if (sql.startsWith('UPDATE admin_users SET password_hash=$2')) {
+      const user = users.find(item => item.id === Number(values[0]));
+      if (!user) return [];
+      Object.assign(user, { passwordHash: values[1], sessionVersion: user.sessionVersion + 1 });
+      if (sql.includes('must_change_password=false')) user.mustChangePassword = false;
+      return [user];
+    }
     if (sql === 'SELECT id FROM survey_control WHERE id=1 FOR UPDATE') return [{ id: 1 }];
     if (sql.includes('FROM survey_control c JOIN surveys')) {
       const period = periods.find(period => period.id === control.periodId);
@@ -98,6 +173,6 @@ function createMockDb() {
     if (sql === 'SELECT 1') return [{ '?column?': 1 }];
     throw new Error(`Unimplemented test query: ${sql}`);
   }
-  return { query, rows, periods, control, surveys, questions, setNow: value => { clock = Date.parse(value); }, withTransaction: work => work(query), get writes() { return writes; }, ensureSchema: async () => { throw new Error('Tests must not migrate a database.'); }, version: SURVEY_VERSION };
+  return { query, rows, periods, control, surveys, questions, users, resetRequests, passwordResets, invitations, setNow: value => { clock = Date.parse(value); }, withTransaction: work => work(query), get writes() { return writes; }, ensureSchema: async () => { throw new Error('Tests must not migrate a database.'); }, version: SURVEY_VERSION };
 }
 module.exports = { createMockDb };

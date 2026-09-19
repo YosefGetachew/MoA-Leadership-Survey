@@ -91,7 +91,11 @@ ALLOWED_ORIGINS=https://leadershipsurvey.moa.gov.et
 MINISTRY_ADMIN_USERNAME=admin
 MINISTRY_ADMIN_PASSWORD=REPLACE_WITH_A_LONG_UNIQUE_ADMIN_PASSWORD
 MINISTRY_ADMIN_SESSION=REPLACE_WITH_AT_LEAST_64_RANDOM_CHARACTERS
+APP_PUBLIC_URL=https://leadershipsurvey.moa.gov.et
+FTMS_EMAIL_ENV_FILE=C:\REPLACE_WITH_ACTUAL_FTMS_BACKEND_PATH\.env
 ```
+
+Use the actual absolute path to the FTMS backend `.env` on this server; do not assume the placeholder path. Confirm it contains `EMAIL_USER` and `EMAIL_PASS`, and grant the survey API's Windows service identity read access to that file. The survey then uses the same Gmail SMTP account as FTMS, without copying its password into the survey configuration. The server must be allowed to connect to `smtp.gmail.com:587`. If FTMS's mail account or app password changes, the survey reads the new values on the next invitation. Never place mail credentials in Git. If FTMS uses a different transport later, update this integration before changing FTMS's mail configuration.
 
 Generate the session secret in PowerShell:
 
@@ -103,10 +107,11 @@ Restrict NTFS read permission on `.env` to the service account and authorized se
 
 ## 5. Install, migrate, and start the API
 
+For the email-invitation and self-service password-reset upgrade, deploy the backend and frontend together and run `npm ci` to install the mail dependency. Restarting the backend adds `admin_users.email` and `must_change_password` plus the `admin_invitations` and `admin_password_resets` tables, without deleting users or survey responses. Existing username-based users remain active. New users cannot sign in until they set a password through their email invitation. Active users with email can receive one-time password-change links; legacy users without email still need administrator assistance. Configure the FTMS mail-file path and public HTTPS URL above before using either email flow; test with an authorized test mailbox. Do not run `npm run db:migrate` solely for this upgrade: it also resets the `.env`-configured administrator password to `MINISTRY_ADMIN_PASSWORD`. Keep at least two active administrator accounts so one can help if the other loses access.
+
 ```powershell
 Set-Location "C:\apps\moa-leadership-survey\backend"
 npm ci
-npm run db:migrate
 pm2 start ecosystem.config.cjs
 pm2 save
 Invoke-RestMethod http://127.0.0.1:5001/api/health
