@@ -33,6 +33,12 @@ Invitation email can reuse FTMS delivery: set `FTMS_EMAIL_ENV_FILE` in the surve
 
 Changing a role, account status or password ends that user's existing signed-in sessions. An administrator cannot remove their own administrator access, and the API prevents removal of the last active administrator. Existing accounts keep their roles during the upgrade; use **Users** to reassign an account intentionally. The backend's normal schema initialization adds the `survey_admin` role and `session_version` column. Running `npm run db:migrate` also refreshes the environment-configured `admin` account password, so use it only when that is intended.
 
+## Word questionnaire import and export
+
+Administrators and survey administrators can select **Export Word** in **Questions** to download the selected survey's complete question bank as an editable `.docx` table. The table includes stable questionnaire codes, category codes, display order, analysis dimension, active status, English wording and Amharic wording. Use that exported file as the import template and keep its seven column headings unchanged.
+
+Select **Import Word** to apply the edited file. Existing codes update only their English and Amharic wording; their category and structural settings remain protected. New codes are added using the category, order, dimension and active status supplied in the row. Missing rows are not deleted. Both languages are required, codes must be unique, and the entire import is validated and committed atomically—an invalid row prevents all changes. Files are limited to 5 MB and 500 question rows.
+
 ## Questionnaire coverage
 
 Every respondent completes evaluator information, then 69 statements in order: 23 Senior Leadership statements, 28 Middle Leadership statements, and 18 Lower Leadership statements. The seven overall reform questions have been removed from the active survey. Expert is a respondent category, not a fourth assessment section: the source questionnaire provides only three leadership sections. The form uses 16 pages, section-local question numbering (Senior 1–23, Middle 1–28, Lower 1–18), and the existing English/Amharic rating matrix and page-level Clear choices control.

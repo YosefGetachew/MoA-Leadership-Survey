@@ -39,10 +39,13 @@ export default function QuestionManager({ surveyId, surveyName, surveySettings }
   const [form, setForm] = useState(emptyForm('high_level'));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const editorDialog = useRef<HTMLDivElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
+  const importInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -113,10 +116,55 @@ export default function QuestionManager({ surveyId, surveyName, surveySettings }
     finally { setSaving(false); }
   }
 
+  async function exportQuestions() {
+    setExporting(true); setError(''); setMessage('');
+    try {
+      const response = await fetch(`/api/admin/questions.docx?surveyId=${encodeURIComponent(surveyId)}`, { credentials: 'include' });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.error || 'Unable to export the questionnaire.');
+      }
+      const blob = await response.blob();
+      const disposition = response.headers.get('Content-Disposition') || '';
+      const match = disposition.match(/filename="?([^";]+)"?/i);
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = match?.[1] || 'questionnaire-questions.docx';
+      document.body.appendChild(link); link.click(); link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(link.href), 1_000);
+      setMessage('The editable Word questionnaire was exported.');
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to export the questionnaire.'); }
+    finally { setExporting(false); }
+  }
+
+  async function importQuestions(file?: File) {
+    if (!file) return;
+    setError(''); setMessage('');
+    if (!/\.docx$/i.test(file.name)) { setError('Select a Word file ending in .docx.'); if (importInput.current) importInput.current.value = ''; return; }
+    if (file.size > 5 * 1024 * 1024) { setError('The Word file must be 5 MB or smaller.'); if (importInput.current) importInput.current.value = ''; return; }
+    setImporting(true);
+    try {
+      const body = new FormData();
+      body.append('surveyId', surveyId);
+      body.append('file', file);
+      const response = await fetch('/api/admin/questions/import', { method: 'POST', credentials: 'include', body });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'Unable to import the questionnaire.');
+      setMessage(`Import complete: ${payload.created} added, ${payload.updated} updated and ${payload.unchanged} unchanged.`);
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to import the questionnaire.'); }
+    finally { setImporting(false); if (importInput.current) importInput.current.value = ''; }
+  }
+
   return <section className="admin-panel question-manager">
     <div className="question-manager-heading">
       <div><p className="eyebrow">PostgreSQL question bank</p><h2>{surveyName}</h2><p>Edit the English and Amharic wording used by this survey. Questions are grouped by leadership category. Make structural changes while collection is closed so every evaluator receives the same tool.</p></div>
-      <button className="primary-button" type="button" onClick={addNew}>+ Add question</button>
+      <div className="question-manager-tools">
+        <button className="secondary-button" type="button" disabled={exporting || importing} onClick={() => void exportQuestions()}>{exporting ? 'Exporting…' : 'Export Word'}</button>
+        <button className="secondary-button" type="button" disabled={exporting || importing} onClick={() => importInput.current?.click()}>{importing ? 'Importing…' : 'Import Word'}</button>
+        <input ref={importInput} className="visually-hidden" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={event => void importQuestions(event.target.files?.[0])} />
+        <button className="primary-button" type="button" disabled={importing} onClick={addNew}>+ Add question</button>
+      </div>
     </div>
 
     <div className="question-browser question-browser-top">
@@ -150,6 +198,7 @@ export default function QuestionManager({ surveyId, surveyName, surveySettings }
 
     <div className="question-browser">
       {message && <div className="question-success" role="status">✓ {message}</div>}
+      {error && !editorOpen && <div className="error-banner question-import-error" role="alert">{error}</div>}
       <label className="question-search">Find a question<input type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search code, English or Amharic text" /></label>
       {loading ? <p className="empty-state">Loading questionnaire…</p> : <div className="managed-question-list">{visible.map((question, index) => <article className={question.active ? '' : 'inactive'} key={question.code}>
         <div className="managed-question-code"><code>{question.code}</code><span>#{index + 1}</span></div>

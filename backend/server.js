@@ -4,6 +4,7 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 const express = require("express");
 const cookieParser = require("cookie-parser");
+const multer = require("multer");
 const { ensureSchema, query, withTransaction } = require("./config/db");
 const { createStaffSession, getStaffSession, requireStaff, requireAdministrator, requireSurveyManager, requireResultsReader } = require("./auth");
 const { hashPassword, verifyPassword } = require("./password");
@@ -20,8 +21,14 @@ const { buildSurveyAnalytics, parseFilters } = require("./survey-analytics");
 const { getAvailability, lockControl, assertOpen, changeWindow } = require("./survey-window");
 const { QUESTION_CATEGORIES, QUESTION_CODE_PATTERN, getQuestionSections, getOpenEndedQuestions, questionCodes } = require("./question-bank");
 const { normalizeId, listSurveys, getSurvey, createSurvey, updateSurvey } = require("./survey-catalog");
+const { CATEGORY_ORDER, buildQuestionWordDocument, parseQuestionWordDocument } = require("./question-word");
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "").split(",").map((value) => value.trim()).filter(Boolean);
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const questionWordUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { files: 1, fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, callback) => callback(null, /\.docx$/i.test(file.originalname)),
+});
 function invitationToken() { return crypto.randomBytes(32).toString("base64url"); }
 function tokenHash(token) { return crypto.createHash("sha256").update(token).digest("hex"); }
 app.locals.sendInvitation = sendInvitation;
@@ -384,6 +391,72 @@ app.get("/api/admin/questions", requireSurveyManager, async (req, res, next) => 
   } catch (error) { next(error); }
 });
 
+app.get("/api/admin/questions.docx", requireSurveyManager, async (req, res, next) => {
+  try {
+    const surveyId = normalizeId(req.query.surveyId);
+    const survey = await getSurvey(query, surveyId);
+    const [sections, openQuestions] = await Promise.all([
+      getQuestionSections(query, { includeInactive: true, surveyId }),
+      getOpenEndedQuestions(query, { includeInactive: true, surveyId }),
+    ]);
+    const questions = [
+      ...sections.flatMap(section => section.questions.map(question => ({ ...question, textEn: question.text, leadershipLevel: section.level }))),
+      ...openQuestions.map(question => ({ ...question, textEn: question.text, leadershipLevel: 'open_ended' })),
+    ].sort((a, b) => CATEGORY_ORDER.indexOf(a.leadershipLevel) - CATEGORY_ORDER.indexOf(b.leadershipLevel) || a.sortOrder - b.sortOrder || a.code.localeCompare(b.code));
+    const document = await buildQuestionWordDocument({ survey, questions });
+    res.set("Cache-Control", "no-store");
+    res.type("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+      .attachment(`${survey.slug}-questions.docx`).send(document);
+  } catch (error) { next(error); }
+});
+
+app.post("/api/admin/questions/import", requireSurveyManager, questionWordUpload.single('file'), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Select a Word .docx questionnaire file exported from this system.' });
+    const surveyId = normalizeId(req.body.surveyId);
+    const imported = await parseQuestionWordDocument(req.file.buffer);
+    const result = await withTransaction(async transactionQuery => {
+      await getSurvey(transactionQuery, surveyId);
+      const existingRows = await transactionQuery(
+        `SELECT code,leadership_level AS "leadershipLevel",text_en AS "textEn",text_am AS "textAm"
+         FROM survey_questions WHERE survey_id=$1 FOR UPDATE`,
+        [surveyId],
+      );
+      const existing = new Map(existingRows.map(row => [row.code, row]));
+      let created = 0;
+      let updated = 0;
+      let unchanged = 0;
+      for (const question of imported.questions) {
+        const current = existing.get(question.code);
+        if (current) {
+          if (current.leadershipLevel !== question.leadershipLevel) {
+            throw Object.assign(new Error(`${question.code}: existing questionnaire codes cannot be moved to another category.`), { statusCode: 400 });
+          }
+          if (current.textEn === question.textEn && current.textAm === question.textAm) { unchanged += 1; continue; }
+          await transactionQuery(
+            `UPDATE survey_questions SET text_en=$3,text_am=$4,updated_at=now(),updated_by=$5
+             WHERE survey_id=$1 AND code=$2`,
+            [surveyId, question.code, question.textEn, question.textAm, req.staff.username],
+          );
+          updated += 1;
+          continue;
+        }
+        await transactionQuery(
+          `INSERT INTO survey_questions(survey_id,code,leadership_level,text_en,text_am,dimension,sort_order,active,updated_by)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [surveyId, question.code, question.leadershipLevel, question.textEn, question.textAm, question.dimension, question.sortOrder, question.active, req.staff.username],
+        );
+        created += 1;
+      }
+      return { created, updated, unchanged, total: imported.questions.length };
+    });
+    res.json({ ...result, warnings: imported.warnings });
+  } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+    next(error);
+  }
+});
+
 app.post("/api/admin/questions", requireSurveyManager, async (req, res, next) => {
   try {
     const surveyId = normalizeId(req.body.surveyId);
@@ -634,6 +707,10 @@ app.post("/api/admin/users/:id/reset-password", requireAdministrator, async (req
 app.use((req, res) => res.status(404).json({ error: `Route not found: ${req.method} ${req.path}` }));
 app.use((error, _req, res, _next) => {
   console.error(error);
+  if (error instanceof multer.MulterError) {
+    const message = error.code === 'LIMIT_FILE_SIZE' ? 'The Word file must be 5 MB or smaller.' : 'The Word file upload could not be processed.';
+    return res.status(400).json({ error: message });
+  }
   res.status(error.statusCode || 500).json({ error: "The server could not complete this request." });
 });
 
