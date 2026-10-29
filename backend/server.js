@@ -19,7 +19,7 @@ const { SURVEY_VERSION, PREVIOUS_SURVEY_VERSION, LEGACY_SURVEY_VERSION, LEADERSH
 const { buildSurveyCsv } = require("./survey-csv");
 const { buildSurveyAnalytics, parseFilters } = require("./survey-analytics");
 const { getAvailability, lockControl, assertOpen, changeWindow } = require("./survey-window");
-const { QUESTION_CATEGORIES, QUESTION_CODE_PATTERN, getQuestionSections, getOpenEndedQuestions, questionCodes } = require("./question-bank");
+const { QUESTION_CATEGORIES, GENERAL_QUESTION_CATEGORY, QUESTION_CODE_PATTERN, getQuestionSections, getOpenEndedQuestions, getGeneralQuestions, questionCodes } = require("./question-bank");
 const { normalizeId, listSurveys, getSurvey, createSurvey, updateSurvey } = require("./survey-catalog");
 const { CATEGORY_ORDER, buildQuestionWordDocument, parseQuestionWordDocument } = require("./question-word");
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "").split(",").map((value) => value.trim()).filter(Boolean);
@@ -87,11 +87,12 @@ app.get("/api/survey/questions", async (_req, res, next) => {
   try {
     const availability = await getAvailability(query);
     const surveyId = Number(availability.survey.id);
-    const [sections, openQuestions] = await Promise.all([
+    const [sections, generalQuestions, openQuestions] = await Promise.all([
       getQuestionSections(query, { surveyId }),
+      getGeneralQuestions(query, { surveyId }),
       getOpenEndedQuestions(query, { surveyId }),
     ]);
-    res.set("Cache-Control", "no-store").json({ survey: availability.survey, sections, openQuestions });
+    res.set("Cache-Control", "no-store").json({ survey: availability.survey, sections, generalQuestions, openQuestions });
   } catch (error) { next(error); }
 });
 
@@ -153,11 +154,17 @@ app.post("/api/survey/responses", async (req, res, next) => {
       assertOpen(availability, req.body.periodId);
       if (req.body.surveyId != null && String(req.body.surveyId) !== availability.survey.id) throw Object.assign(new Error('The published survey has changed. Please reload and begin again.'), { statusCode: 409, code: 'SURVEY_CHANGED' });
       const sections = await getQuestionSections(transactionQuery, { surveyId: Number(availability.survey.id) });
-      const openQuestions = await getOpenEndedQuestions(transactionQuery, { surveyId: Number(availability.survey.id) });
+      const [generalQuestions, openQuestions] = await Promise.all([
+        getGeneralQuestions(transactionQuery, { surveyId: Number(availability.survey.id) }),
+        getOpenEndedQuestions(transactionQuery, { surveyId: Number(availability.survey.id) }),
+      ]);
+      if (generalQuestions.length && generalQuestions.length !== 12) {
+        throw Object.assign(new Error('The General annual-plan questions are not configured. Ask the survey administrator to restart the survey service.'), { statusCode: 503, code: 'GENERAL_QUESTIONS_NOT_CONFIGURED' });
+      }
       if (openQuestions.length !== 3 || !['GQ1', 'GQ2', 'GQ3'].every(code => openQuestions.some(question => question.code === code))) {
         throw Object.assign(new Error('The required open-ended questions are not configured. Ask the survey administrator to run the database migration.'), { statusCode: 503, code: 'OPEN_QUESTIONS_NOT_CONFIGURED' });
       }
-      const data = validateSubmission(req.body, questionCodes(sections), openQuestions.map(question => question.code));
+      const data = validateSubmission(req.body, [...questionCodes(sections), ...generalQuestions.map(question => question.code)], openQuestions.map(question => question.code));
       if (!respondentToken) throw Object.assign(new Error("Reload the survey and allow cookies before submitting."), { statusCode: 428, code: "SURVEY_SESSION_REQUIRED" });
       const saved = await transactionQuery(
       `INSERT INTO leadership_assessment_responses
@@ -317,7 +324,8 @@ app.post("/api/admin/surveys/:id/publish", requireSurveyManager, async (req, res
       if (availability.state !== 'closed') throw Object.assign(new Error('Close the current collection period before publishing another survey.'), { statusCode: 409, code: 'SURVEY_WINDOW_ACTIVE' });
       const selected = await getSurvey(transactionQuery, surveyId);
       const counts = await transactionQuery(`SELECT leadership_level AS "leadershipLevel",count(*)::integer AS count FROM survey_questions WHERE survey_id=$1 AND active=true GROUP BY leadership_level`, [surveyId]);
-      if ([...QUESTION_CATEGORIES.keys()].some(level => !counts.some(item => item.leadershipLevel === level && item.count > 0))) throw Object.assign(new Error('Add at least one active question to every leadership category before publishing this survey.'), { statusCode: 400, code: 'INCOMPLETE_QUESTIONNAIRE' });
+      const requiredCategories = [...QUESTION_CATEGORIES.keys(), ...(counts.some(item => item.leadershipLevel === GENERAL_QUESTION_CATEGORY.level) ? [GENERAL_QUESTION_CATEGORY.level] : [])];
+      if (requiredCategories.some(level => !counts.some(item => item.leadershipLevel === level && item.count > 0))) throw Object.assign(new Error('Add at least one active question to every leadership category and the General category before publishing this survey.'), { statusCode: 400, code: 'INCOMPLETE_QUESTIONNAIRE' });
       await transactionQuery('UPDATE surveys SET published=false,updated_at=now() WHERE published=true');
       await transactionQuery('UPDATE surveys SET published=true,updated_at=now() WHERE id=$1', [surveyId]);
       await transactionQuery('UPDATE survey_control SET survey_id=$1,period_id=NULL,revision=revision+1 WHERE id=1', [surveyId]);
@@ -349,7 +357,7 @@ app.get("/api/admin/survey-results", requireResultsReader, async (req, res, next
   try {
     const surveyId = normalizeId(req.query.surveyId);
     const filters = parseFilters(req.query);
-    const [sections, openQuestions] = await Promise.all([getQuestionSections(query, { surveyId }), getOpenEndedQuestions(query, { surveyId })]);
+    const [sections, generalQuestions, openQuestions] = await Promise.all([getQuestionSections(query, { surveyId }), getGeneralQuestions(query, { surveyId }), getOpenEndedQuestions(query, { surveyId })]);
     const rows = await query(
       `SELECT r.id,r.leadership_level AS "leadershipLevel",r.evaluator_level AS "evaluatorLevel",
               r.survey_version AS "surveyVersion",r.sex,r.age,r.work_experience AS "workExperience",
@@ -358,7 +366,7 @@ app.get("/api/admin/survey-results", requireResultsReader, async (req, res, next
        WHERE r.survey_id=$1 ORDER BY r.completed_at DESC`,
       [surveyId],
     );
-    res.set("Cache-Control", "no-store").json(buildSurveyAnalytics(rows, filters, sections, openQuestions));
+    res.set("Cache-Control", "no-store").json(buildSurveyAnalytics(rows, filters, sections, openQuestions, generalQuestions));
   } catch (error) {
     if (error.statusCode === 400) return res.status(400).json({ error: error.message });
     next(error);
@@ -369,25 +377,26 @@ app.get("/api/admin/survey-results.csv", requireResultsReader, async (req, res, 
   try {
     const surveyId = normalizeId(req.query.surveyId);
     const survey = await getSurvey(query, surveyId);
-    const [sections, openQuestions] = await Promise.all([getQuestionSections(query, { surveyId }), getOpenEndedQuestions(query, { surveyId })]);
+    const [sections, generalQuestions, openQuestions] = await Promise.all([getQuestionSections(query, { surveyId }), getGeneralQuestions(query, { surveyId }), getOpenEndedQuestions(query, { surveyId })]);
     const rows = await query(
       `SELECT id,survey_version,leadership_level,evaluator_level,
               sex,age,work_experience,completed_at,responses,open_ended_responses
        FROM leadership_assessment_responses WHERE survey_id=$1 ORDER BY completed_at DESC`,
       [surveyId],
     );
-    res.type("text/csv; charset=utf-8").attachment(`${survey.slug}-${new Date().toISOString().slice(0, 10)}.csv`).send(buildSurveyCsv(rows, sections, openQuestions));
+    res.type("text/csv; charset=utf-8").attachment(`${survey.slug}-${new Date().toISOString().slice(0, 10)}.csv`).send(buildSurveyCsv(rows, sections, openQuestions, generalQuestions));
   } catch (error) { next(error); }
 });
 
 app.get("/api/admin/questions", requireSurveyManager, async (req, res, next) => {
   try {
     const surveyId = normalizeId(req.query.surveyId);
-    const [sections, openQuestions] = await Promise.all([
+    const [sections, generalQuestions, openQuestions] = await Promise.all([
       getQuestionSections(query, { includeInactive: true, surveyId }),
+      getGeneralQuestions(query, { includeInactive: true, surveyId }),
       getOpenEndedQuestions(query, { includeInactive: true, surveyId }),
     ]);
-    res.set("Cache-Control", "no-store").json({ sections, openQuestions });
+    res.set("Cache-Control", "no-store").json({ sections, generalQuestions, openQuestions });
   } catch (error) { next(error); }
 });
 
@@ -395,12 +404,14 @@ app.get("/api/admin/questions.docx", requireSurveyManager, async (req, res, next
   try {
     const surveyId = normalizeId(req.query.surveyId);
     const survey = await getSurvey(query, surveyId);
-    const [sections, openQuestions] = await Promise.all([
+    const [sections, generalQuestions, openQuestions] = await Promise.all([
       getQuestionSections(query, { includeInactive: true, surveyId }),
+      getGeneralQuestions(query, { includeInactive: true, surveyId }),
       getOpenEndedQuestions(query, { includeInactive: true, surveyId }),
     ]);
     const questions = [
       ...sections.flatMap(section => section.questions.map(question => ({ ...question, textEn: question.text, leadershipLevel: section.level }))),
+      ...generalQuestions.map(question => ({ ...question, textEn: question.text, leadershipLevel: 'general' })),
       ...openQuestions.map(question => ({ ...question, textEn: question.text, leadershipLevel: 'open_ended' })),
     ].sort((a, b) => CATEGORY_ORDER.indexOf(a.leadershipLevel) - CATEGORY_ORDER.indexOf(b.leadershipLevel) || a.sortOrder - b.sortOrder || a.code.localeCompare(b.code));
     const document = await buildQuestionWordDocument({ survey, questions });
@@ -468,7 +479,7 @@ app.post("/api/admin/questions", requireSurveyManager, async (req, res, next) =>
     const dimension = clean(req.body.dimension, 120) || null;
     const sortOrder = Number(req.body.sortOrder);
     if (!QUESTION_CODE_PATTERN.test(code)) return res.status(400).json({ error: "Use a unique questionnaire code such as HL24. It must begin with a letter and contain only capital letters, numbers or underscores." });
-    if (!QUESTION_CATEGORIES.has(leadershipLevel) && leadershipLevel !== 'open_ended') return res.status(400).json({ error: "Select a valid questionnaire category." });
+    if (!QUESTION_CATEGORIES.has(leadershipLevel) && ![GENERAL_QUESTION_CATEGORY.level, 'open_ended'].includes(leadershipLevel)) return res.status(400).json({ error: "Select a valid questionnaire category." });
     if (!textEn || !textAm) return res.status(400).json({ error: "Enter both the English and Amharic question text." });
     if (!Number.isInteger(sortOrder) || sortOrder < 0 || sortOrder > 9999) return res.status(400).json({ error: "Sort order must be a whole number from 0 to 9999." });
     const rows = await query(

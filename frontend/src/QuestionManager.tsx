@@ -2,7 +2,7 @@ import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } fro
 import type { LeadershipLevel, SurveySection } from './surveyFlow';
 import type { SurveySettingsDefinition } from './SurveyCatalog';
 
-type QuestionCategory = LeadershipLevel | 'open_ended';
+type QuestionCategory = LeadershipLevel | 'general' | 'open_ended';
 
 interface ManagedQuestion {
   code: string;
@@ -15,6 +15,7 @@ interface ManagedQuestion {
 }
 
 const defaultCategories: Array<{ value: QuestionCategory; label: string }> = [
+  { value: 'general', label: 'General' },
   { value: 'high_level', label: 'Senior Leadership' },
   { value: 'middle_level', label: 'Middle Leadership' },
   { value: 'lower_level', label: 'Lower Leadership' },
@@ -30,13 +31,13 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export default function QuestionManager({ surveyId, surveyName, surveySettings }: { surveyId: string; surveyName: string; surveySettings: SurveySettingsDefinition }) {
-  const categories = defaultCategories.map(item => ({ ...item, label: item.value === 'open_ended' ? item.label : surveySettings.categories[item.value]?.titleEn || item.label }));
+  const categories = defaultCategories.map(item => ({ ...item, label: item.value === 'open_ended' || item.value === 'general' ? item.label : surveySettings.categories[item.value]?.titleEn || item.label }));
   const [questions, setQuestions] = useState<ManagedQuestion[]>([]);
-  const [category, setCategory] = useState<QuestionCategory>('high_level');
+  const [category, setCategory] = useState<QuestionCategory>('general');
   const [search, setSearch] = useState('');
   const [editingCode, setEditingCode] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
-  const [form, setForm] = useState(emptyForm('high_level'));
+  const [form, setForm] = useState(emptyForm('general'));
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -50,14 +51,14 @@ export default function QuestionManager({ surveyId, surveyName, surveySettings }
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const payload = await request<{ sections: SurveySection[]; openQuestions?: Array<Omit<ManagedQuestion, 'leadershipLevel'>> }>(`/api/admin/questions?surveyId=${encodeURIComponent(surveyId)}`);
+      const payload = await request<{ sections: SurveySection[]; generalQuestions?: Array<Omit<ManagedQuestion, 'leadershipLevel'>>; openQuestions?: Array<Omit<ManagedQuestion, 'leadershipLevel'>> }>(`/api/admin/questions?surveyId=${encodeURIComponent(surveyId)}`);
       setQuestions([...payload.sections.flatMap(section => section.questions.map(question => ({
         ...question,
         textAm: question.textAm || '',
         sortOrder: question.sortOrder || 0,
         active: question.active !== false,
         leadershipLevel: section.level,
-      }))), ...(payload.openQuestions || []).map(question => ({ ...question, textAm: question.textAm || '', sortOrder: question.sortOrder || 0, active: question.active !== false, leadershipLevel: 'open_ended' as const }))]);
+      }))), ...(payload.generalQuestions || []).map(question => ({ ...question, textAm: question.textAm || '', sortOrder: question.sortOrder || 0, active: question.active !== false, leadershipLevel: 'general' as const })), ...(payload.openQuestions || []).map(question => ({ ...question, textAm: question.textAm || '', sortOrder: question.sortOrder || 0, active: question.active !== false, leadershipLevel: 'open_ended' as const }))]);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to load questions.'); }
     finally { setLoading(false); }
   }, [surveyId]);

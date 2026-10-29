@@ -2,6 +2,7 @@ const { Pool } = require("pg");
 const { readFileSync } = require("node:fs");
 const path = require("node:path");
 const questionSeed = require("../../frontend/src/levelSurveyQuestions.json");
+const { GENERAL_QUESTIONS } = require("../general-questions");
 
 const pool = new Pool(process.env.DATABASE_URL ? {
   connectionString: process.env.DATABASE_URL,
@@ -168,7 +169,7 @@ async function ensureSchema() {
     );
     ALTER TABLE survey_questions DROP CONSTRAINT IF EXISTS survey_questions_leadership_level_check;
     ALTER TABLE survey_questions ADD CONSTRAINT survey_questions_leadership_level_check
-      CHECK (leadership_level IN ('high_level','middle_level','lower_level','open_ended'));
+      CHECK (leadership_level IN ('high_level','middle_level','lower_level','general','open_ended'));
     ALTER TABLE survey_questions ADD COLUMN IF NOT EXISTS survey_id bigint REFERENCES surveys(id);
     UPDATE survey_questions SET survey_id=1 WHERE survey_id IS NULL;
     ALTER TABLE survey_questions ALTER COLUMN survey_id SET DEFAULT 1;
@@ -293,6 +294,22 @@ async function ensureSchema() {
      FROM jsonb_to_recordset($1::jsonb) AS x(code text,leadership_level text,text_en text,text_am text,dimension text,sort_order integer)
      ON CONFLICT(survey_id,code) DO NOTHING`,
     [JSON.stringify(questionRows)],
+  );
+  await pool.query(
+    `INSERT INTO survey_questions(survey_id,code,leadership_level,text_en,text_am,dimension,sort_order,active)
+     SELECT s.id,x.code,x.leadership_level,x.text_en,x.text_am,x.dimension,x.sort_order,x.active
+     FROM surveys s CROSS JOIN jsonb_to_recordset($1::jsonb) AS x(code text,leadership_level text,text_en text,text_am text,dimension text,sort_order integer,active boolean)
+     WHERE s.published=true OR s.id=1
+     ON CONFLICT(survey_id,code) DO NOTHING`,
+    [JSON.stringify(GENERAL_QUESTIONS.map(question => ({
+      code: question.code,
+      leadership_level: question.leadershipLevel,
+      text_en: question.textEn,
+      text_am: question.textAm,
+      dimension: question.dimension,
+      sort_order: question.sortOrder,
+      active: question.active,
+    })))],
   );
   await pool.query(
     `INSERT INTO survey_questions(survey_id,code,leadership_level,text_en,text_am,dimension,sort_order)

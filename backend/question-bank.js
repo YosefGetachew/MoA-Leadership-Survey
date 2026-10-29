@@ -3,6 +3,7 @@ const QUESTION_CATEGORIES = new Map([
   ['middle_level', { level: 'middle_level', title: 'Middle Leadership', audience: 'Lead executives, executives, advisors, and project coordinators' }],
   ['lower_level', { level: 'lower_level', title: 'Lower Leadership', audience: 'Team leaders, Desk head' }],
 ]);
+const GENERAL_QUESTION_CATEGORY = { level: 'general', title: 'General', audience: 'MOA Annual Plan Processes' };
 const QUESTION_CODE_PATTERN = /^[A-Z][A-Z0-9_]{1,19}$/;
 const { normalizeSurveySettings } = require('./survey-catalog');
 
@@ -52,8 +53,19 @@ async function getOpenEndedQuestions(query, { includeInactive = false, surveyId 
   );
 }
 
+async function getGeneralQuestions(query, { includeInactive = false, surveyId = 1 } = {}) {
+  return query(
+    `SELECT code,text_en AS text,text_am AS "textAm",dimension,sort_order AS "sortOrder",active,
+            updated_at AS "updatedAt",updated_by AS "updatedBy"
+     FROM survey_questions
+     WHERE survey_id=$1 AND leadership_level='general' ${includeInactive ? '' : 'AND active=true'}
+     ORDER BY sort_order,code`,
+    [surveyId],
+  );
+}
+
 function questionCodes(sections) {
   return sections.flatMap(section => section.questions.filter(question => question.active !== false).map(question => question.code));
 }
 
-module.exports = { QUESTION_CATEGORIES, QUESTION_CODE_PATTERN, getQuestionSections, getOpenEndedQuestions, questionCodes, rowsToSections };
+module.exports = { QUESTION_CATEGORIES, GENERAL_QUESTION_CATEGORY, QUESTION_CODE_PATTERN, getQuestionSections, getOpenEndedQuestions, getGeneralQuestions, questionCodes, rowsToSections };

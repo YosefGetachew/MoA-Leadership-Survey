@@ -33,7 +33,7 @@ const englishCopy = {
   finalTool: "Final questionnaire · Vf1", title: "Leadership Assessment Questionnaire",
   qrTitle: "Scan to open the survey", qrHelp: "Use a phone camera to access this questionnaire.",
   lead: "Assess Senior, Middle and Lower Leadership in the Ministry of Agriculture based on your direct experience. We do not collect your name, email or phone number.",
-  howTo: "How to answer", instructions: "All evaluators, from Senior Leadership to Expert level, will complete the same assessment.\n\nSelect your own leadership level and enter your sex, age and work experience.\n\nYour evaluation starts with Senior Leadership, continues to Middle Level Leadership, and ends with Lower Level Leadership. Complete each section before moving to the next.\n\nRate every statement from 1 to 5, or select N/A when you do not have sufficient information.",
+  howTo: "How to answer", instructions: "All evaluators, from Senior Leadership to Expert level, will complete the same assessment.\n\nSelect your own leadership level and enter your sex, age and work experience.\n\nYour evaluation starts with the General annual-plan questions, then continues to Senior Leadership, Middle Level Leadership and Lower Level Leadership. Complete each section before moving to the next.\n\nRate every statement from 1 to 5, or select N/A when you do not have sufficient information.",
   chooseLevel: "What is your leadership level in the ministry?", statements: "statements", estimate: "All three leadership levels",
   evaluatorLevelRequired: "Select your own leadership level in the ministry.",
   assessmentOrder: "Evaluator information → Senior Leadership → Middle Leadership → Lower Level Leadership → Expert",
@@ -115,6 +115,7 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
     } catch { return null; }
   });
   const [sections, setSections] = useState<SurveySection[]>([]);
+  const [generalQuestions, setGeneralQuestions] = useState<MatrixQuestion[]>([]);
   const [openQuestions, setOpenQuestions] = useState<MatrixQuestion[]>([]);
   const [questionsLoading, setQuestionsLoading] = useState(true);
   const [questionsError, setQuestionsError] = useState(false);
@@ -149,18 +150,20 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
   const levelTitle = (item: SurveySection) => language === "am" ? item.titleAm || amharicLevels[item.level].title : item.title;
   const levelAudience = (item: SurveySection) => language === "am" ? item.audienceAm || amharicLevels[item.level].audience : item.audience;
   const questionTranslation = (question: MatrixQuestion) => question.textAm || "";
-  const surveyPages = sections.length === 3 ? buildSurveyPages(sections, QUESTIONS_PER_PAGE, openQuestions) : [];
+  const surveyPages = sections.length === 3 && generalQuestions.length === 12 ? buildSurveyPages(sections, QUESTIONS_PER_PAGE, openQuestions, generalQuestions) : [];
   const pageData = surveyPages[page];
   const section = sections.find(item => item.level === pageData?.level);
   const totalPages = surveyPages.length;
   const isDemographicsPage = pageData?.level === "demographics";
+  const isGeneralPage = pageData?.level === "general";
   const isOpenEndedPage = pageData?.level === "open_ended";
   const pageQuestions = pageData?.questions || [];
   const leadershipAnswered = sections.flatMap(item => item.questions).filter(question => answers[question.code]).length;
+  const generalAnswered = generalQuestions.filter(question => answers[question.code]).length;
   const openAnsweredCount = openQuestions.filter(question => openEndedAnswers[question.code]?.trim()).length;
   const answeredCount = leadershipAnswered + openAnsweredCount;
   const pageAnsweredCount = pageQuestions.filter(question => answers[question.code]).length;
-  const totalQuestionCount = sections.reduce<number>((sum, item) => sum + item.questions.length, 0);
+  const totalQuestionCount = generalQuestions.length + sections.reduce<number>((sum, item) => sum + item.questions.length, 0);
   const totalItemCount = totalQuestionCount + openQuestions.length;
   const progress = totalItemCount ? Math.round((answeredCount / totalItemCount) * 100) : 0;
   const surveyDisplayName = language === "am" && availability?.survey?.nameAm ? availability.survey.nameAm : availability?.survey?.nameEn || t.surveyName;
@@ -169,6 +172,7 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
   const surveyInstructionsAm = availability?.survey?.settings?.instructionsAm || amharicCopy.instructions;
   const hierarchyOrder = [
     language === "am" ? "የገምጋሚው መረጃ" : "Evaluator information",
+    language === "am" ? "አጠቃላይ" : "General",
     ...sections.map(levelTitle),
     language === "am" ? "ባለሙያ" : "Expert",
     t.openSection,
@@ -194,13 +198,15 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
 
   useEffect(() => {
     let live = true;
-    api<{ sections: SurveySection[]; openQuestions?: MatrixQuestion[] }>("/api/survey/questions")
+    api<{ sections: SurveySection[]; generalQuestions?: MatrixQuestion[]; openQuestions?: MatrixQuestion[] }>("/api/survey/questions")
       .then(payload => {
-        if (!live || payload.sections.length !== 3 || payload.sections.some(section => !section.questions.length)) throw new Error("The questionnaire is not configured.");
+        const general = payload.generalQuestions || [];
+        if (!live || payload.sections.length !== 3 || payload.sections.some(section => !section.questions.length) || general.length !== 12) throw new Error("The questionnaire is not configured.");
         const qualitative = payload.openQuestions || [];
         if (qualitative.length !== 3 || !['GQ1', 'GQ2', 'GQ3'].every(code => qualitative.some(question => question.code === code))) throw new Error("The open-ended questionnaire is not configured.");
-        const restored = typeof draft?.periodId === "string" && draft.periodId === activePeriod.current ? sanitizeDraft(draft, payload.sections, qualitative) : sanitizeDraft(null, payload.sections, qualitative);
+        const restored = typeof draft?.periodId === "string" && draft.periodId === activePeriod.current ? sanitizeDraft(draft, payload.sections, qualitative, general) : sanitizeDraft(null, payload.sections, qualitative, general);
         setSections(payload.sections);
+        setGeneralQuestions(general);
         setOpenQuestions(qualitative);
         setEvaluatorLevel(restored.evaluatorLevel);
         setAnswers(restored.answers);
@@ -372,7 +378,7 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
 
   async function submit() {
     if (!pageIsComplete()) return;
-    if (!evaluatorLevel || !validDemographics(demographics) || leadershipAnswered !== totalQuestionCount || openAnsweredCount !== openQuestions.length) {
+    if (!evaluatorLevel || !validDemographics(demographics) || generalAnswered + leadershipAnswered !== totalQuestionCount || openAnsweredCount !== openQuestions.length) {
       setError(t.requiredAll);
       return;
     }
@@ -435,7 +441,7 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
 
       {page >= 0 && (
         <div ref={progressBar} className="progress-wrap" aria-label={`${progress}% ${t.complete}`}>
-          <div className="progress-meta"><span>{isOpenEndedPage ? t.openSection : section ? levelTitle(section) : t.overallSection}</span><strong>{progress}% {t.complete}</strong></div>
+          <div className="progress-meta"><span>{isOpenEndedPage ? t.openSection : isGeneralPage ? (language === 'am' ? 'አጠቃላይ' : 'General') : section ? levelTitle(section) : t.overallSection}</span><strong>{progress}% {t.complete}</strong></div>
           <div className="progress-track"><span style={{ width: `${progress}%` }} /></div>
         </div>
       )}
@@ -486,7 +492,7 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
         ) : pageData ? (
           <section className="questionnaire-card">
             <div className="page-heading">
-              <div><p className="eyebrow">{t.page} {page + 1} {t.of} {totalPages}</p><h1 ref={pageHeading} tabIndex={-1}>{isOpenEndedPage ? t.openSection : section ? levelTitle(section) : t.overallSection}</h1><p>{isOpenEndedPage ? t.openIntro : section ? levelAudience(section) : t.overallIntro}</p></div>
+              <div><p className="eyebrow">{t.page} {page + 1} {t.of} {totalPages}</p><h1 ref={pageHeading} tabIndex={-1}>{isOpenEndedPage ? t.openSection : isGeneralPage ? (language === 'am' ? 'አጠቃላይ፡ የግብርና ሚኒስቴር ዓመታዊ ዕቅድ ዝግጅት ሂደቶች' : 'General: MOA Annual Plan Processes') : section ? levelTitle(section) : t.overallSection}</h1><p>{isOpenEndedPage ? t.openIntro : isGeneralPage ? (language === 'am' ? 'በሁሉም የአመራር ደረጃዎች እና በባለሙያ ደረጃ ስለ ዓመታዊ ዕቅድ ሂደቶች ይመዝኑ።' : 'Rate these annual-plan process statements based on your experience across the Ministry. These questions apply to every evaluator.') : section ? levelAudience(section) : t.overallIntro}</p></div>
             </div>
 
             <p className="assessment-order">{hierarchyOrder}</p>

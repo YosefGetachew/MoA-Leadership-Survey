@@ -12,6 +12,7 @@ const HEADERS = [
 ];
 
 const CATEGORY_LABELS = {
+  general: 'General',
   high_level: 'Senior Leadership',
   middle_level: 'Middle Leadership',
   lower_level: 'Lower Leadership',

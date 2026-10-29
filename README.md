@@ -10,6 +10,27 @@ This application uses the Ministry of Agriculture's final leadership questionnai
 
 ## Quick start with PostgreSQL
 
+### Docker on localhost
+
+Start Docker Desktop using Linux containers. Copy `.env.docker.example` to `.env.docker` and replace the password and session-secret placeholders. These settings are independent of your Windows PostgreSQL password and `backend/.env`. Local environment files are excluded from images.
+
+From the project root, run:
+
+```powershell
+docker compose --env-file .env.docker up -d --build
+docker compose --env-file .env.docker exec api npm run db:migrate
+```
+
+Open `http://localhost:3001/#admin` and sign in with `DOCKER_ADMIN_USERNAME` and `DOCKER_ADMIN_PASSWORD`. Open a collection period to make the public questionnaire available. Port 3001 leaves the Vite server on port 3000 available; change `DOCKER_WEB_PORT` if desired.
+
+Run the migration command once for a new installation. Running it again refreshes the configured administrator's password and role. Normal restarts do not reset accounts. The API initializes the additive schema on startup. Nginx serves the built frontend and proxies `/api`; the API and database are accessible only inside the Compose network.
+
+The separate `moa_docker_pgdata` volume retains Docker database records. This setup does not import your Windows database or use the older `reform_feedback_pgdata` volume. `docker compose --env-file .env.docker down` preserves data; adding `-v` deletes the Docker database. Changing the environment password after initialization does not change the existing database role password.
+
+Use `docker compose --env-file .env.docker ps` and `docker compose --env-file .env.docker logs --tail 100 api` for diagnostics. Email delivery needs additional SMTP configuration; the host FTMS environment file is not mounted. This configuration uses development cookie settings for localhost HTTP. Public hosting requires TLS and production cookie settings.
+
+### Without Docker
+
 1. Start the locally installed PostgreSQL Windows service and create a database named `moa_reform_feedback`.
 2. Create config: `Copy-Item backend/.env.example backend/.env`, then enter the local PostgreSQL username and password.
 3. In `backend/`, run `npm install`, `npm run db:migrate`, then `npm run dev`.
@@ -41,7 +62,7 @@ Select **Import Word** to apply the edited file. Existing codes update only thei
 
 ## Questionnaire coverage
 
-Every respondent completes evaluator information, then 69 statements in order: 23 Senior Leadership statements, 28 Middle Leadership statements, and 18 Lower Leadership statements. The seven overall reform questions have been removed from the active survey. Expert is a respondent category, not a fourth assessment section: the source questionnaire provides only three leadership sections. The form uses 16 pages, section-local question numbering (Senior 1–23, Middle 1–28, Lower 1–18), and the existing English/Amharic rating matrix and page-level Clear choices control.
+Every respondent completes evaluator information, then 81 Likert statements in order: 12 General annual-plan process statements, 23 Senior Leadership statements, 28 Middle Leadership statements, and 18 Lower Leadership statements. The three open-ended questions follow the Likert sections. Expert is a respondent category, not a fourth leadership section: the source questionnaire provides three leadership sections. General questions apply to every evaluator and use codes A1–A4, B1–B5 and C1–C3. The form uses the existing English/Amharic rating matrix and page-level Clear choices control.
 
 No assessed position, sector or institution is requested. Sex must be Male or Female; age must be a whole number from 18 to 100; total work experience must be whole years from 0 up to age. Both year fields preserve the typed value, including decimals, and show a warning for non-whole-number entries; they never strip decimal points or silently round. A valid whole number is required to continue. Respondents round up any extra months to the next year: 45 years and 5 months becomes 46; 10 years and 3 months of work experience becomes 11. Exactly whole years stay unchanged, and no work experience is entered as 0. These fields, the respondent category and all 69 ratings are required for one complete submission; N/A is valid. Respondent classifications include explanations, with Team Leads and Desk Heads under Lower Leadership.
 
