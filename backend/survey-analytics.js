@@ -97,6 +97,12 @@ function buildSurveyAnalytics(allRows, filters = parseFilters(), sections = [], 
     makeGroups('Age (years)', ['18–29', '30–39', '40–49', '50–59', '60–100', 'Not collected'], row => !Number.isInteger(row.age) || row.age < 18 || row.age > 100 ? 'Not collected' : row.age < 30 ? '18–29' : row.age < 40 ? '30–39' : row.age < 50 ? '40–49' : row.age < 60 ? '50–59' : '60–100'),
     makeGroups('Work experience (years)', ['0–5', '6–10', '11–20', '21+', 'Not collected'], row => !Number.isInteger(row.workExperience) || row.workExperience < 0 ? 'Not collected' : row.workExperience <= 5 ? '0–5' : row.workExperience <= 10 ? '6–10' : row.workExperience <= 20 ? '11–20' : '21+'),
   ];
+  const respondentStatistics = {
+    total: rows.length,
+    evaluatorLevels: demographics[0].groups.map(group => ({ label: group.label, count: group.submissions, percent: percent(group.submissions, rows.length) })),
+    sex: demographics[1].groups.map(group => ({ label: group.label, count: group.submissions, percent: percent(group.submissions, rows.length) })),
+    ageGroups: demographics[2].groups.map(group => ({ label: group.label, count: group.submissions, percent: percent(group.submissions, rows.length) })),
+  };
   const correlations = sections.flatMap((section, index) => sections.slice(index + 1).map((other, offset) => ({
     first: section.title, second: other.title,
     ...correlation(observations.map(observation => [observation.levelMeans[index], observation.levelMeans[index + offset + 1]]).filter(pair => pair.every(value => value !== null))),
@@ -123,7 +129,7 @@ function buildSurveyAnalytics(allRows, filters = parseFilters(), sections = [], 
     availableVersions: versions.map(version => ({ version, count: allRows.filter(row => row.surveyVersion === version).length })),
     summary: { totalResponses: rows.length, levelCounts: Object.fromEntries(levels.map(level => [level.level, level.submissions])), averageScore: overall.average,
       naRate: overall.naRate, completeRate: percent(complete, rows.length), favorableRate: overall.favorable, validRatings: overall.valid },
-    levels, items, demographics, correlations, quality,
+    levels, items, demographics, respondentStatistics, correlations, quality,
     qualitative: openQuestions.map(question => ({
       code: question.code, text: question.text, textAm: question.textAm,
       responses: rows.map(row => ({ responseId: row.id, evaluatorLevel: row.evaluatorLevel, completedAt: row.completedAt, text: row.openEndedResponses?.[question.code] }))

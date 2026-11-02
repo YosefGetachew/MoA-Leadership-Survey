@@ -13,6 +13,7 @@ interface Results {
   summary: { totalResponses: number; averageScore: number | null; naRate: number | null; completeRate: number | null; favorableRate: number | null; validRatings: number };
   levels: (Stats & { level: string; title: string; submissions: number; scoredSubmissions: number; respondentMean: number | null })[];
   items: Item[]; priorities: Item[]; strengths: Item[];
+  respondentStatistics: { total: number; evaluatorLevels: { label: string; count: number; percent: number | null }[]; sex: { label: string; count: number; percent: number | null }[]; ageGroups: { label: string; count: number; percent: number | null }[] };
   demographics: { dimension: string; groups: { label: string; submissions: number; scoredSubmissions: number; average: number | null; levels: { level: string; n: number; average: number | null }[] }[] }[];
   correlations: { first: string; second: string; n: number; r: number | null; reason: string | null }[];
   quality: { expectedRatings: number; validRatings: number; naRatings: number; missingRatings: number; invalidRatings: number; completeSubmissions: number; allNaSubmissions: number; straightLineSubmissions: number; missingDemographics: number };
@@ -101,6 +102,15 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
         <article title="Ratings of 4 or 5 divided by all ratings of 1–5."><span>Favorable ratings</span><strong>{percent(results.summary.favorableRate)}</strong><small>Agree + Strongly agree · excludes N/A</small></article>
         <article title="N/A selections divided by valid ratings plus N/A selections."><span>N/A selections</span><strong>{percent(results.summary.naRate)}</strong><small>not scored as 6 or zero</small></article>
       </section>
+      <Panel id="respondent-statistics" title="Respondent statistics" note="Counts and percentages describe submitted assessments after the filters above. Percentages use the filtered submission total; they are not estimates of the whole Ministry workforce.">
+        <div className="respondent-stats-grid">
+          {[['Evaluator level', results.respondentStatistics.evaluatorLevels], ['Sex', results.respondentStatistics.sex], ['Age group', results.respondentStatistics.ageGroups]].map(([title, rows]) => <article key={title as string}>
+            <h3>{title as string}</h3>
+            <table><thead><tr><th>Group</th><th className="numeric">Count</th><th className="numeric">Share</th></tr></thead><tbody>{(rows as { label: string; count: number; percent: number | null }[]).map(row => <tr key={row.label}><td>{title === 'Evaluator level' ? role(row.label) : row.label}</td><td className="numeric">{row.count}</td><td className="numeric">{percent(row.percent)}</td></tr>)}</tbody></table>
+          </article>)}
+        </div>
+        <p className="analysis-footnote">“Not collected” includes earlier or invalid demographic records. Counts refer to submissions, not independently verified people.</p>
+      </Panel>
       {results.summary.totalResponses === 0 && <div className="empty-state">No submissions match these filters. Change the evaluator category or questionnaire version.</div>}
       <Panel id="leadership-comparison" title="Leadership-level comparison" note="The respondent mean gives each qualifying submission equal weight. A section needs at least half its questions rated 1–5; N/A is excluded. Different sections measure different statements.">
         <div className="analysis-level-grid">{results.levels.map(level => <article key={level.level}>
