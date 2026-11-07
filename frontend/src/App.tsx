@@ -465,6 +465,7 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
             <aside className="survey-qr-card" aria-label={t.qrTitle}>
               <div className="survey-qr-code"><QRCodeSVG value={surveyAccessUrl} size={118} level="M" bgColor="#ffffff" fgColor="#0b4b35" title={t.qrTitle} /></div>
               <div><strong>{t.qrTitle}</strong><p>{t.qrHelp}</p><small>{surveyAccessUrl}</small></div>
+              <p className="contact-notice">{language === 'am' ? <>በዳሰሳ ጥናቱ ላይ ችግር ካጋጠመዎት ዮሴፍ ጌታቸውን ያግኙ፦ <a href="mailto:yosefgetachew@gmail.com">yosefgetachew@gmail.com</a> · <a href="tel:+251911702373">+251 911 702 373</a></> : <>If you face any challenge, contact Yosef Getachew: <a href="mailto:yosefgetachew@gmail.com">yosefgetachew@gmail.com</a> · <a href="tel:+251911702373">+251 911 702 373</a>.</>}</p>
             </aside>
             <p className="eyebrow">{t.finalTool}</p>
             <h1>{surveyDisplayName}</h1>
@@ -562,7 +563,10 @@ function Survey({ onAdmin }: { onAdmin: () => void }) {
           </section>
         ) : null}
       </main>
-      <footer>{t.footer}</footer>
+      <footer>
+        <span>{t.footer}</span>
+        <span className="powered-by">Powered by <a href="mailto:yosefgetachew@gmail.com">Yosef Getachew</a> · <a href="mailto:yosefgetachew@gmail.com">yosefgetachew@gmail.com</a></span>
+      </footer>
     </div>
   );
 }

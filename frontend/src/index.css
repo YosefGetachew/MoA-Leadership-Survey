@@ -55,7 +55,7 @@ h1, h2, strong { font-family: "Manrope", "DM Sans", sans-serif; }
 .intro-card, .questionnaire-card, .thank-you-card { background: rgba(255,255,255,.98); border: 1px solid rgba(27, 80, 56, .12); border-radius: 22px; box-shadow: var(--shadow); }
 .intro-card { position: relative; max-width: 850px; margin: auto; overflow: hidden; padding: clamp(28px, 5vw, 58px); }
 .intro-card::before { position: absolute; top: 0; right: 0; left: 0; height: 5px; content: ""; background: linear-gradient(90deg, var(--green-800), #50a36a 70%, var(--gold)); }
-.survey-qr-card { display: grid; grid-template-columns: 118px minmax(0,1fr); align-items: center; gap: 20px; margin: -18px -18px 34px; padding: 18px; overflow: hidden; color: #35584a; border: 1px solid #d4e5da; border-radius: 16px; background: linear-gradient(135deg,#fbfdfb,#edf7f0); box-shadow: inset 4px 0 var(--gold); }
+.survey-qr-card { display: grid; grid-template-columns: 118px minmax(0,1fr) minmax(240px, 1fr); align-items: center; gap: 20px; margin: -18px -18px 34px; padding: 18px; overflow: hidden; color: #35584a; border: 1px solid #d4e5da; border-radius: 16px; background: linear-gradient(135deg,#fbfdfb,#edf7f0); box-shadow: inset 4px 0 var(--gold); }
 .survey-qr-code { width: 118px; height: 118px; display: grid; place-items: center; padding: 7px; border-radius: 11px; background: white; box-shadow: 0 7px 20px rgba(16,74,51,.12); }
 .survey-qr-code svg { display: block; width: 104px; height: 104px; }
 .survey-qr-card > div:last-child { min-width: 0; }
@@ -119,6 +119,9 @@ h1, h2, strong { font-family: "Manrope", "DM Sans", sans-serif; }
 .profile-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 .intro-footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-top: 30px; padding-top: 24px; border-top: 1px solid var(--line); }
 .intro-footer > span, .survey-actions > span { color: var(--muted); font-size: 13px; }
+.contact-notice { grid-column: 3; margin: 0; padding: 12px 14px; border-left: 3px solid #1b855b; border-radius: 8px; background: #f0f8f3; color: #536a5f; font-size: 12px; line-height: 1.45; }
+.contact-notice a { color: #176b4b; font-weight: 700; text-decoration: none; }
+.contact-notice a:hover, .contact-notice a:focus-visible { text-decoration: underline; }
 .survey-progress-copy { display: grid; justify-items: center; gap: 3px; text-align: center; }
 .survey-progress-copy strong { color: #355649; font-size: 12px; }
 .survey-progress-copy small { color: #698078; font-size: 10px; }
@@ -207,6 +210,10 @@ h1, h2, strong { font-family: "Manrope", "DM Sans", sans-serif; }
 .thank-you-card > .text-button { display: block; margin: 0 auto; }
 .success-mark { width: 64px; height: 64px; display: grid; place-items: center; margin: 0 auto 24px; color: white; border-radius: 50%; background: var(--green-650); font: 800 30px Manrope, sans-serif; box-shadow: 0 12px 32px rgba(35,130,82,.28); }
 footer { margin-top: auto; padding: 24px 16px 34px; color: #78867f; font-size: 12px; text-align: center; }
+footer > span { display: block; }
+.powered-by { margin-top: 7px; color: #6f7f77; }
+.powered-by a { color: #176b4b; text-decoration: none; }
+.powered-by a:hover, .powered-by a:focus-visible { text-decoration: underline; }
 
 .center-screen { min-height: 100vh; display: grid; place-content: center; justify-items: center; color: var(--muted); }
 .spinner { width: 34px; height: 34px; border: 3px solid #d9e5dd; border-top-color: var(--green-650); border-radius: 50%; animation: spin .8s linear infinite; }
@@ -376,6 +383,7 @@ td code { color: var(--green-800); font-weight: 700; }
   .survey-shell { width: min(100% - 20px, 1080px); margin-top: 22px; }
   .intro-card { padding: 27px 20px; border-radius: 16px; }
   .survey-qr-card { grid-template-columns: 76px minmax(0,1fr); gap: 11px; margin: -10px -4px 28px; padding: 12px; }
+  .survey-qr-card .contact-notice { grid-column: 1 / -1; }
   .survey-qr-code { width: 76px; height: 76px; padding: 4px; }
   .survey-qr-code svg { width: 68px; height: 68px; }
   .survey-qr-card strong { font-size: 14px; }
