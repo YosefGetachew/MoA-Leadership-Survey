@@ -108,9 +108,13 @@ function buildSurveyAnalytics(allRows, filters = parseFilters(), sections = [], 
     ...correlation(observations.map(observation => [observation.levelMeans[index], observation.levelMeans[index + offset + 1]]).filter(pair => pair.every(value => value !== null))),
   })));
   const weekly = new Map();
+  const daily = new Map();
   for (const observation of observations) {
     const date = new Date(observation.row.completedAt);
     if (!Number.isFinite(date.getTime())) continue;
+    const day = date.toISOString().slice(0, 10);
+    const dayBucket = daily.get(day) || { date: day, submissions: 0, values: [] };
+    dayBucket.submissions++; dayBucket.values.push(...observation.values); daily.set(day, dayBucket);
     date.setUTCDate(date.getUTCDate() - (date.getUTCDay() + 6) % 7);
     const week = date.toISOString().slice(0, 10);
     const bucket = weekly.get(week) || { week, submissions: 0, values: [] };
@@ -136,6 +140,7 @@ function buildSurveyAnalytics(allRows, filters = parseFilters(), sections = [], 
         .filter(response => typeof response.text === 'string' && response.text.trim()),
     })),
     priorities: ranked.slice(0, 5), strengths: [...ranked].sort((a, b) => b.average - a.average || a.code.localeCompare(b.code)).slice(0, 5),
+    daily: [...daily.values()].sort((a, b) => a.date.localeCompare(b.date)).map(bucket => ({ date: bucket.date, submissions: bucket.submissions, ...distribution(bucket.values) })),
     weekly: [...weekly.values()].sort((a, b) => a.week.localeCompare(b.week)).map(bucket => ({ week: bucket.week, submissions: bucket.submissions, ...distribution(bucket.values) })),
     // Explicit projection keeps raw ratings and obsolete personal/registry fields out of this response.
     recentResponses: [...rows].sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt)).slice(0, 100).map(row => ({

@@ -79,6 +79,8 @@ test('UTC filters are inclusive, weeks start Monday, and date/category filters a
   const records = [row(1, [1, 1, 1], { completedAt: '2026-08-30T23:59:59Z' }), row(2, [4, 4, 4], { completedAt: '2026-08-31T23:59:59Z' }), row(3, [5, 5, 5], { evaluatorLevel: 'senior_leadership' })];
   const results = buildSurveyAnalytics(records, parseFilters({ from: '2026-08-31', to: '2026-08-31', evaluatorLevel: 'expert' }), sections);
   assert.equal(results.summary.totalResponses, 1); assert.equal(results.summary.averageScore, 4);
+  assert.deepEqual(results.daily.map(day => day.date), ['2026-08-31']);
+  assert.equal(results.daily[0].submissions, 1);
   assert.equal(results.weekly.length, 1); assert.equal(results.weekly[0].week, '2026-08-31');
   assert.equal(results.weekly[0].submissions, 1); assert.equal(results.recentResponses[0].id, 2);
   const all = buildSurveyAnalytics(records, parseFilters(), sections);
@@ -91,6 +93,7 @@ test('UTC filters are inclusive, weeks start Monday, and date/category filters a
 test('empty results and all-N/A do not manufacture zero averages or 100% response rates', () => {
   const empty = buildSurveyAnalytics([], parseFilters(), sections);
   assert.equal(empty.summary.averageScore, null); assert.equal(empty.summary.completeRate, null); assert.equal(empty.summary.naRate, null);
+  assert.equal(empty.daily.length, 0);
   assert.equal(empty.weekly.length, 0); assert.equal(empty.priorities.length, 0);
   const results = buildSurveyAnalytics([row(1, [6, 6, 6])], parseFilters(), sections);
   assert.equal(results.summary.naRate, 100); assert.equal(results.summary.averageScore, null);

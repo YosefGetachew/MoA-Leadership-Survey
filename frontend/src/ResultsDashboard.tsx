@@ -17,6 +17,7 @@ interface Results {
   demographics: { dimension: string; groups: { label: string; submissions: number; scoredSubmissions: number; average: number | null; levels: { level: string; n: number; average: number | null }[] }[] }[];
   correlations: { first: string; second: string; n: number; r: number | null; reason: string | null }[];
   quality: { expectedRatings: number; validRatings: number; naRatings: number; missingRatings: number; invalidRatings: number; completeSubmissions: number; allNaSubmissions: number; straightLineSubmissions: number; missingDemographics: number };
+  daily: (Stats & { date: string; submissions: number })[];
   recentResponses: { id: number; leadershipLevel: string; evaluatorLevel: string; sex: string; age: number | null; workExperience: number | null; answeredCount: number; naCount: number; completedAt: string }[];
   qualitative: { code: string; text: string; textAm?: string; responses: { responseId: number; evaluatorLevel: string; completedAt: string; text: string }[] }[];
 }
@@ -30,6 +31,7 @@ const number = (value: number | null) => value === null ? '—' : value.toFixed(
 const percent = (value: number | null) => value === null ? '—' : `${value.toFixed(1)}%`;
 const role = (value: string) => evaluatorLevels.find(item => item.value === value)?.title || value || 'Not collected';
 const date = (value: string) => new Date(value).toLocaleDateString('en-GB', { timeZone: 'UTC', day: 'numeric', month: 'short', year: 'numeric' });
+const dateWithWeekday = (value: string) => new Date(`${value}T00:00:00Z`).toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 function Panel({ title, note, children, id }: { title: string; note?: string; children: ReactNode; id: string }) {
   return <section className="admin-panel" id={id}><div className="panel-heading"><h2>{title}</h2>{note && <p>{note}</p>}</div>{children}</section>;
 }
@@ -110,6 +112,19 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
           </article>)}
         </div>
         <p className="analysis-footnote">“Not collected” includes earlier or invalid demographic records. Counts refer to submissions, not independently verified people.</p>
+      </Panel>
+      <Panel id="daily-submission-audit" title="Daily submission audit" note="Shows how many assessments were submitted on each UTC calendar day. Counts are submissions, not independently verified people; days with no submissions are not listed.">
+        {results.daily.length ? <>
+          <div className="audit-summary">
+            <div><span>Active submission days</span><strong>{results.daily.length}</strong></div>
+            <div><span>First submission day</span><strong>{date(results.daily[0].date)}</strong></div>
+            <div><span>Busiest day</span><strong>{date(results.daily.reduce((best, row) => row.submissions > best.submissions ? row : best, results.daily[0]).date)}</strong><small>{Math.max(...results.daily.map(row => row.submissions))} submissions</small></div>
+          </div>
+          <div className="daily-audit-chart" role="img" aria-label="Daily submitted assessment trend">
+            {results.daily.map(row => <div className="daily-audit-bar-wrap" key={row.date} title={`${dateWithWeekday(row.date)}: ${row.submissions} submissions`}><div className="daily-audit-bar" style={{ height: `${Math.max(8, 100 * row.submissions / Math.max(...results.daily.map(item => item.submissions)))}%` }} /><span>{row.submissions}</span><small>{row.date.slice(5)}</small></div>)}
+          </div>
+          <div className="table-wrap"><table><thead><tr><th>UTC date</th><th className="numeric">Submissions</th><th className="numeric">Share of filtered total</th><th className="numeric">Valid ratings</th><th className="numeric">Average rating</th></tr></thead><tbody>{results.daily.map(row => <tr key={row.date}><td>{dateWithWeekday(row.date)}</td><td className="numeric">{row.submissions}</td><td className="numeric">{percent(results.summary.totalResponses ? 100 * row.submissions / results.summary.totalResponses : null)}</td><td className="numeric">{row.valid}</td><td className="numeric">{number(row.average)}</td></tr>)}</tbody></table></div>
+        </> : <p className="empty-state">No submitted assessments match the selected filters.</p>}
       </Panel>
       {results.summary.totalResponses === 0 && <div className="empty-state">No submissions match these filters. Change the evaluator category or questionnaire version.</div>}
       <Panel id="leadership-comparison" title="Leadership-level comparison" note="The respondent mean gives each qualifying submission equal weight. A section needs at least half its questions rated 1–5; N/A is excluded. Different sections measure different statements.">
