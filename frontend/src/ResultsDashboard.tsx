@@ -112,6 +112,14 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
             <table><thead><tr><th>Group</th><th className="numeric">Count</th><th className="numeric">Share</th></tr></thead><tbody>{(rows as { label: string; count: number; percent: number | null }[]).map(row => <tr key={row.label}><td>{title === 'Evaluator level' ? role(row.label) : row.label}</td><td className="numeric">{row.count}</td><td className="numeric">{percent(row.percent)}</td></tr>)}</tbody></table>
           </article>)}
         </div>
+        <div className="respondent-type-chart" aria-label="Respondent type distribution">
+          <h3>Respondent type distribution</h3>
+          {(results.respondentStatistics.evaluatorLevels.filter(row => row.count > 0).length ? results.respondentStatistics.evaluatorLevels.filter(row => row.count > 0) : results.respondentStatistics.evaluatorLevels).map(row => <div className="respondent-type-row" key={row.label}>
+            <div className="respondent-type-label"><span>{role(row.label)}</span><strong>{row.count}</strong></div>
+            <div className="respondent-type-track"><span style={{ width: `${row.percent ?? 0}%` }} /></div>
+            <small>{percent(row.percent)}</small>
+          </div>)}
+        </div>
         <p className="analysis-footnote">“Not collected” includes earlier or invalid demographic records. Counts refer to submissions, not independently verified people.</p>
       </Panel>
       <Panel id="daily-submission-audit" title="Daily submission audit" note="Shows how many assessments were submitted on each UTC calendar day. Counts are submissions, not independently verified people; days with no submissions are not listed.">

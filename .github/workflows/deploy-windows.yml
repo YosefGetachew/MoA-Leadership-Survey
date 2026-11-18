@@ -1,0 +1,63 @@
+name: Deploy to Ministry Windows server
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ministry-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # A self-hosted runner must be installed on the Ministry server.
+    runs-on: [self-hosted, windows, moa-production]
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out release
+        uses: actions/checkout@v4
+
+      - name: Build frontend
+        shell: powershell
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Publish backend release
+        shell: powershell
+        run: |
+          $source = Join-Path $env:GITHUB_WORKSPACE 'backend'
+          $destination = 'C:\apps\moa-leadership-survey\backend'
+          Get-ChildItem -LiteralPath $source -Force |
+            Where-Object { $_.Name -notin @('.env', 'node_modules') } |
+            Copy-Item -Destination $destination -Recurse -Force
+          Set-Location $destination
+          npm ci --omit=dev
+
+      - name: Publish frontend to IIS
+        shell: powershell
+        run: |
+          $iisRoot = 'C:\inetpub\wwwroot\moa-leadership-survey'
+          if (-not (Test-Path -LiteralPath $iisRoot)) {
+            New-Item -ItemType Directory -Path $iisRoot -Force | Out-Null
+          }
+          Copy-Item -Path '.\frontend\build\*' -Destination $iisRoot -Recurse -Force
+
+      - name: Restart API
+        shell: powershell
+        run: |
+          Set-Location 'C:\apps\moa-leadership-survey\backend'
+          pm2 restart moa-leadership-survey-backend --update-env
+          pm2 save
+
+      - name: Verify API health
+        shell: powershell
+        run: |
+          $health = Invoke-RestMethod -Uri 'http://127.0.0.1:5001/api/health'
+          if ($health.status -ne 'ok' -or $health.database -ne 'connected') {
+            throw "Health check failed: $($health | ConvertTo-Json -Compress)"
+          }
+          Write-Host "API health check passed."
