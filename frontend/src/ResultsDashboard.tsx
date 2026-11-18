@@ -105,6 +105,7 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
         <article title="Ratings of 4 or 5 divided by all ratings of 1–5."><span>Favorable ratings</span><strong>{percent(results.summary.favorableRate)}</strong><small>Agree + Strongly agree · excludes N/A</small></article>
         <article title="N/A selections divided by valid ratings plus N/A selections."><span>N/A selections</span><strong>{percent(results.summary.naRate)}</strong><small>not scored as 6 or zero</small></article>
       </section>
+      <div className="analysis-two-column audit-panels">
       <Panel id="respondent-statistics" title="Respondent statistics" note="Counts and percentages describe submitted assessments after the filters above. Percentages use the filtered submission total; they are not estimates of the whole Ministry workforce.">
         <div className="respondent-stats-grid">
           {[['Evaluator level', results.respondentStatistics.evaluatorLevels], ['Sex', results.respondentStatistics.sex], ['Age group', results.respondentStatistics.ageGroups]].map(([title, rows]) => <article key={title as string}>
@@ -114,11 +115,11 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
         </div>
         <div className="respondent-type-chart" aria-label="Respondent type distribution">
           <h3>Respondent type distribution</h3>
-          {(results.respondentStatistics.evaluatorLevels.filter(row => row.count > 0).length ? results.respondentStatistics.evaluatorLevels.filter(row => row.count > 0) : results.respondentStatistics.evaluatorLevels).map(row => <div className="respondent-type-row" key={row.label}>
-            <div className="respondent-type-label"><span>{role(row.label)}</span><strong>{row.count}</strong></div>
-            <div className="respondent-type-track"><span style={{ width: `${row.percent ?? 0}%` }} /></div>
-            <small>{percent(row.percent)}</small>
-          </div>)}
+          <div className="respondent-type-bars">
+            {(results.respondentStatistics.evaluatorLevels.filter(row => row.count > 0).length ? results.respondentStatistics.evaluatorLevels.filter(row => row.count > 0) : results.respondentStatistics.evaluatorLevels).map(row => <div className="respondent-type-bar-item" key={row.label} title={`${role(row.label)}: ${row.count} respondents (${percent(row.percent)})`}>
+              <strong>{row.count}</strong><div className="respondent-type-bar" style={{ height: `${Math.max(12, 120 * (row.percent ?? 0) / 100)}px` }} /><span>{role(row.label)}</span><small>{percent(row.percent)}</small>
+            </div>)}
+          </div>
         </div>
         <p className="analysis-footnote">“Not collected” includes earlier or invalid demographic records. Counts refer to submissions, not independently verified people.</p>
       </Panel>
@@ -130,11 +131,12 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
             <div><span>Busiest day</span><strong>{date(results.daily.reduce((best, row) => row.submissions > best.submissions ? row : best, results.daily[0]).date)}</strong><small>{Math.max(...results.daily.map(row => row.submissions))} submissions</small></div>
           </div>
           <div className="daily-audit-chart" role="img" aria-label="Daily submitted assessment trend">
-            {results.daily.map(row => <div className="daily-audit-bar-wrap" key={row.date} title={`${dateWithWeekday(row.date)}: ${row.submissions} submissions`}><div className="daily-audit-bar" style={{ height: `${Math.max(18, 150 * row.submissions / dailyPeak)}px` }} /><span>{row.submissions}</span><small>{row.date.slice(5)}</small></div>)}
+            {results.daily.map(row => <div className="daily-audit-bar-wrap" key={row.date} title={`${dateWithWeekday(row.date)}: ${row.submissions} respondents`}><strong>{row.submissions}</strong><div className="daily-audit-bar" style={{ height: `${Math.max(18, 150 * row.submissions / dailyPeak)}px` }} /><small>{row.date.slice(5)}</small></div>)}
           </div>
           <div className="table-wrap"><table><thead><tr><th>UTC date</th><th className="numeric">Submissions</th><th className="numeric">Share of filtered total</th><th className="numeric">Valid ratings</th><th className="numeric">Average rating</th></tr></thead><tbody>{results.daily.map(row => <tr key={row.date}><td>{dateWithWeekday(row.date)}</td><td className="numeric">{row.submissions}</td><td className="numeric">{percent(results.summary.totalResponses ? 100 * row.submissions / results.summary.totalResponses : null)}</td><td className="numeric">{row.valid}</td><td className="numeric">{number(row.average)}</td></tr>)}</tbody></table></div>
         </> : <p className="empty-state">No submitted assessments match the selected filters.</p>}
       </Panel>
+      </div>
       {results.summary.totalResponses === 0 && <div className="empty-state">No submissions match these filters. Change the evaluator category or questionnaire version.</div>}
       <Panel id="leadership-comparison" title="Leadership-level comparison" note="The respondent mean gives each qualifying submission equal weight. A section needs at least half its questions rated 1–5; N/A is excluded. Different sections measure different statements.">
         <div className="analysis-level-grid">{results.levels.map(level => <article key={level.level}>
