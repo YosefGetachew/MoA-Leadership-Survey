@@ -30,9 +30,10 @@
 .audit-summary > div { padding: 14px 16px; border: 1px solid #e0e9e3; border-radius: 12px; background: #fbfdfb; }
 .audit-summary span, .audit-summary small { display: block; color: var(--muted); font-size: 12px; }
 .audit-summary strong { display: block; margin-top: 7px; color: var(--green-950); font-size: 20px; }
-.daily-audit-chart { display: flex; align-items: end; gap: 8px; min-height: 150px; margin: 14px 24px 22px; padding: 16px 12px 0; border-bottom: 1px solid #d8e4dd; overflow-x: auto; }
-.daily-audit-bar-wrap { display: flex; flex: 0 0 34px; min-height: 130px; flex-direction: column; align-items: center; justify-content: end; gap: 4px; color: var(--muted); font-size: 11px; }
-.daily-audit-bar { width: 22px; min-height: 8px; border-radius: 5px 5px 0 0; background: linear-gradient(180deg, #2d9768, #176b4b); }
+.daily-audit-chart { display: flex; align-items: end; gap: 10px; height: 220px; margin: 14px 24px 22px; padding: 16px 12px 0; border-bottom: 1px solid #d8e4dd; overflow-x: auto; }
+.daily-audit-bar-wrap { display: flex; flex: 0 0 38px; height: 195px; flex-direction: column; align-items: center; justify-content: end; gap: 5px; color: var(--muted); font-size: 11px; }
+.daily-audit-bar { width: 28px; min-height: 18px; border-radius: 6px 6px 0 0; background: linear-gradient(180deg, #37a978, #176b4b); box-shadow: 0 2px 6px rgba(23,107,75,.2); transition: height .2s ease, filter .2s ease; }
+.daily-audit-bar-wrap:hover .daily-audit-bar { filter: brightness(1.12); }
 .daily-audit-bar-wrap small { font-size: 10px; white-space: nowrap; transform: rotate(-35deg); transform-origin: top center; margin-top: 7px; }
 .rating-distribution { height: 22px; display: flex; overflow: hidden; border-radius: 5px; background: #eef2f0; }
 .rating-distribution span { height: 100%; }

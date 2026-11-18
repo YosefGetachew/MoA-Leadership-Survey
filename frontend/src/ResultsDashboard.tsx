@@ -85,6 +85,7 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
   });
   const groups = results?.demographics.find(item => item.dimension === dimension)?.groups || [];
   const appliedFilters = new URLSearchParams(applied);
+  const dailyPeak = results?.daily.length ? Math.max(...results.daily.map(row => row.submissions)) : 0;
   return <div className="results-dashboard">
     <div className="results-survey-heading"><span>Analysing survey</span><strong>{surveyName}</strong></div>
     <form className="analysis-filters" onSubmit={apply}>
@@ -121,7 +122,7 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
             <div><span>Busiest day</span><strong>{date(results.daily.reduce((best, row) => row.submissions > best.submissions ? row : best, results.daily[0]).date)}</strong><small>{Math.max(...results.daily.map(row => row.submissions))} submissions</small></div>
           </div>
           <div className="daily-audit-chart" role="img" aria-label="Daily submitted assessment trend">
-            {results.daily.map(row => <div className="daily-audit-bar-wrap" key={row.date} title={`${dateWithWeekday(row.date)}: ${row.submissions} submissions`}><div className="daily-audit-bar" style={{ height: `${Math.max(8, 100 * row.submissions / Math.max(...results.daily.map(item => item.submissions)))}%` }} /><span>{row.submissions}</span><small>{row.date.slice(5)}</small></div>)}
+            {results.daily.map(row => <div className="daily-audit-bar-wrap" key={row.date} title={`${dateWithWeekday(row.date)}: ${row.submissions} submissions`}><div className="daily-audit-bar" style={{ height: `${Math.max(18, 150 * row.submissions / dailyPeak)}px` }} /><span>{row.submissions}</span><small>{row.date.slice(5)}</small></div>)}
           </div>
           <div className="table-wrap"><table><thead><tr><th>UTC date</th><th className="numeric">Submissions</th><th className="numeric">Share of filtered total</th><th className="numeric">Valid ratings</th><th className="numeric">Average rating</th></tr></thead><tbody>{results.daily.map(row => <tr key={row.date}><td>{dateWithWeekday(row.date)}</td><td className="numeric">{row.submissions}</td><td className="numeric">{percent(results.summary.totalResponses ? 100 * row.submissions / results.summary.totalResponses : null)}</td><td className="numeric">{row.valid}</td><td className="numeric">{number(row.average)}</td></tr>)}</tbody></table></div>
         </> : <p className="empty-state">No submitted assessments match the selected filters.</p>}
