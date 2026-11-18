@@ -26,6 +26,19 @@ jobs:
           npm ci
           npm run build
 
+      - name: Prepare deployment directories
+        shell: powershell
+        run: |
+          $account = '{0}\{1}' -f $env:COMPUTERNAME, $env:USERNAME
+          $backend = 'C:\apps\moa-leadership-survey\backend'
+          $iisRoot = 'C:\inetpub\wwwroot\moa-leadership-survey'
+          if (-not (Test-Path -LiteralPath $backend)) { throw "Backend directory not found: $backend" }
+          if (-not (Test-Path -LiteralPath $iisRoot)) { New-Item -ItemType Directory -Path $iisRoot -Force | Out-Null }
+          icacls $backend /grant "${account}:(OI)(CI)M" /T /C
+          icacls $iisRoot /grant "${account}:(OI)(CI)M" /T /C
+          attrib -R "$backend\*" /S /D
+          attrib -R "$iisRoot\*" /S /D
+
       - name: Publish backend release
         shell: powershell
         run: |
