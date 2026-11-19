@@ -12,7 +12,7 @@ concurrency:
 jobs:
   deploy:
     # A self-hosted runner must be installed on the Ministry server.
-    runs-on: [self-hosted, windows, moa-production]
+    runs-on: [self-hosted, windows]
     timeout-minutes: 20
 
     steps:
