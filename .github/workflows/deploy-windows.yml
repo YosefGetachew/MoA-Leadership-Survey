@@ -63,8 +63,11 @@ jobs:
         shell: powershell
         run: |
           Set-Location 'C:\apps\moa-leadership-survey\backend'
-          pm2 restart moa-leadership-survey-backend --update-env
-          pm2 save
+          $env:PM2_HOME = 'C:\Users\Administrator\.pm2'
+          $pm2 = 'C:\Users\Administrator\AppData\Roaming\npm\pm2.cmd'
+          if (-not (Test-Path -LiteralPath $pm2)) { throw "PM2 was not found at $pm2. Run 'where.exe pm2' on the server and update the workflow path." }
+          & $pm2 restart moa-leadership-survey-backend --update-env
+          & $pm2 save
 
       - name: Verify API health
         shell: powershell
