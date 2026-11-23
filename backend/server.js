@@ -408,7 +408,7 @@ app.get("/api/admin/survey-results-all.csv", requireResultsReader, async (req, r
        FROM leadership_assessment_responses WHERE survey_id=$1 ORDER BY completed_at DESC`,
       [surveyId],
     );
-    res.type("text/csv; charset=utf-8").attachment(`${survey.slug}-all-questions-and-responses-${new Date().toISOString().slice(0, 10)}.csv`).send(buildSurveyCsv(rows, sections, openQuestions, generalQuestions));
+    res.type("text/csv; charset=utf-8").attachment(`${survey.slug}-all-questions-and-responses-${new Date().toISOString().slice(0, 10)}.csv`).send(buildSurveyCsv(rows, sections, openQuestions, generalQuestions, { analysisReady: true }));
   } catch (error) { next(error); }
 });
 

@@ -13,18 +13,21 @@ function rating(value) {
   if (value === 6) return 'N/A';
   return Number.isInteger(value) && value >= 1 && value <= 5 ? value : '';
 }
-function buildSurveyCsv(rows, sections = [], openQuestions = [], generalQuestions = []) {
+function buildSurveyCsv(rows, sections = [], openQuestions = [], generalQuestions = [], options = {}) {
+  const analysisReady = options.analysisReady === true;
   const coverageLabels = Object.fromEntries(sections.map(section => [section.level, section.title]));
   const questions = sections.flatMap(section => section.questions.map((question, index) => ({
-    code: question.code, header: `${section.title} ${index + 1} (${question.code})`,
+    code: question.code, header: analysisReady ? (question.textEn || question.text || question.code) : `${section.title} ${index + 1} (${question.code})`,
   })));
-  const general = generalQuestions.map((question, index) => ({ code: question.code, header: `General ${index + 1} (${question.code})` }));
-  const headers = ['ID', 'Survey version', 'Assessed levels', 'Evaluator leadership level', 'Sex', 'Age (years)', 'Work experience (years)', 'Submitted at (UTC)', ...general.map(question => question.header), ...questions.map(question => question.header), ...openQuestions.map(question => `${question.code} - ${question.text}`)];
+  const general = generalQuestions.map((question, index) => ({ code: question.code, header: analysisReady ? (question.text || question.textEn || question.code) : `General ${index + 1} (${question.code})` }));
+  const metadataHeaders = ['ID', 'Survey version', 'Assessed levels', 'Evaluator leadership level', 'Sex', 'Age (years)', 'Work experience (years)'];
+  const headers = [...metadataHeaders, ...(analysisReady ? [] : ['Submitted at (UTC)']), ...general.map(question => question.header), ...questions.map(question => question.header), ...openQuestions.map(question => analysisReady ? (question.text || question.code) : `${question.code} - ${question.text}`)];
   const records = rows.map(row => [
     row.id, row.survey_version,
     row.leadership_level === 'all_levels' ? 'Senior, Middle and Lower Leadership' : coverageLabels[row.leadership_level] || '',
     evaluatorLabels[row.evaluator_level] || '', sexLabels[row.sex] || '', row.age, row.work_experience,
-    new Date(row.completed_at).toISOString(), ...general.map(question => rating(row.responses?.[question.code])), ...questions.map(question => rating(row.responses?.[question.code])), ...openQuestions.map(question => row.open_ended_responses?.[question.code] || ''),
+    ...(analysisReady ? [] : [new Date(row.completed_at).toISOString()]),
+    ...general.map(question => rating(row.responses?.[question.code])), ...questions.map(question => rating(row.responses?.[question.code])), ...openQuestions.map(question => row.open_ended_responses?.[question.code] || ''),
   ]);
   // UTF-8 BOM and CRLF make the download straightforward to open in Excel.
   return '\uFEFF' + [headers, ...records].map(record => record.map(csvCell).join(',')).join('\r\n') + '\r\n';
