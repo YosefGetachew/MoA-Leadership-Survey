@@ -124,6 +124,31 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
   function exportPptx() {
     return downloadCsv(`/api/admin/survey-results-summary.pptx?surveyId=${encodeURIComponent(surveyId)}&${applied}`, `survey-analysis-summary-${new Date().toISOString().slice(0, 10)}.pptx`);
   }
+  function analysisRows() {
+    if (!results) return [] as string[][];
+    const rows: string[][] = [['Section', 'Metric', 'Group', 'Value', 'Notes']];
+    const add = (section: string, metric: string, group: string, value: string | number | null, notes = '') => rows.push([section, metric, group, value === null ? '' : String(value), notes]);
+    add('Headline', 'Submitted assessments', '', results.summary.totalResponses);
+    add('Headline', 'Average leadership rating', '', results.summary.averageScore, 'out of 5');
+    add('Headline', 'Favorable ratings', '', results.summary.favorableRate, 'percent');
+    add('Headline', 'N/A selections', '', results.summary.naRate, 'percent');
+    add('Headline', 'Valid ratings', '', results.summary.validRatings);
+    results.levels.forEach(level => { add('Leadership comparison', 'Respondent mean', level.title, level.respondentMean, 'out of 5'); add('Leadership comparison', 'Scored submissions', level.title, level.scoredSubmissions); add('Leadership comparison', 'Submitted assessments', level.title, level.submissions); });
+    [['Evaluator level', results.respondentStatistics.evaluatorLevels], ['Sex', results.respondentStatistics.sex], ['Age group', results.respondentStatistics.ageGroups]].forEach(([metric, groups]) => (groups as { label: string; count: number; percent: number | null }[]).forEach(group => { add('Respondent statistics', 'Count', `${metric}: ${group.label}`, group.count); add('Respondent statistics', 'Share', `${metric}: ${group.label}`, group.percent, 'percent'); }));
+    results.daily.forEach(row => add('Daily submission audit', 'Submissions', row.date, row.submissions));
+    results.items.forEach(item => { add('Question analysis', 'Mean', item.code, item.average, item.text); add('Question analysis', 'Valid ratings', item.code, item.valid, item.text); add('Question analysis', 'Favorable', item.code, item.favorable, 'percent'); });
+    Object.entries(results.quality).forEach(([metric, value]) => add('Response quality', metric, '', value));
+    results.qualitative.forEach(question => add('Open-ended feedback', 'Response count', question.code, question.responses.length, question.text));
+    return rows;
+  }
+  function exportAnalysisCsv() {
+    const rows = analysisRows(); if (!rows.length) return;
+    downloadText(`analysis-results-${new Date().toISOString().slice(0, 10)}.csv`, '\uFEFF' + rows.map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\r\n') + '\r\n', 'text/csv;charset=utf-8');
+  }
+  function exportAnalysisR() {
+    if (!results) return;
+    downloadText(`analysis-results-${new Date().toISOString().slice(0, 10)}.R`, `# MoA Leadership Survey complete analysis\n# Save the Analysis CSV in the same folder before running this script.\nif (!requireNamespace("ggplot2", quietly = TRUE)) install.packages("ggplot2")\nlibrary(ggplot2)\nresults <- read.csv("analysis-results.csv", stringsAsFactors = FALSE, check.names = FALSE)\nresults$value <- suppressWarnings(as.numeric(results$value))\nprint(subset(results, Section == "Headline"))\nleadership <- subset(results, Section == "Leadership comparison" & Metric == "Respondent mean")\nif (nrow(leadership)) print(ggplot(leadership, aes(x = reorder(Group, Value), y = Value)) + geom_col(fill = "#0B5D44") + coord_flip() + labs(title = "Leadership-level comparison", x = NULL, y = "Mean / 5") + theme_minimal())\ndaily <- subset(results, Section == "Daily submission audit")\nif (nrow(daily)) print(ggplot(daily, aes(x = Group, y = Value, group = 1)) + geom_col(fill = "#2C9A68") + labs(title = "Daily submissions", x = "UTC date", y = "Submissions") + theme_minimal())\nquestions <- subset(results, Section == "Question analysis" & Metric == "Mean")\nif (nrow(questions)) print(ggplot(questions, aes(x = reorder(Group, Value), y = Value)) + geom_col(fill = "#D0A42C") + coord_flip() + labs(title = "Question-level means", x = "Question code", y = "Mean / 5") + theme_minimal())\n`, 'text/plain;charset=utf-8');
+  }
   const results = state.query === applied && state.revision === revision ? state.data : null;
   const items = (results?.items || []).filter(item => (!itemLevel || item.leadershipLevel === itemLevel) && `${item.code} ${item.text}`.toLowerCase().includes(search.toLowerCase())).sort((a, b) => {
     if (itemOrder === 'code') return a.code.localeCompare(b.code);
@@ -141,8 +166,10 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
       <label>Questionnaire version<select value={filters.version} onChange={event => setFilters({ ...filters, version: event.target.value })}>{versions.map(version => <option key={version.value} value={version.value}>{version.label}</option>)}</select></label>
       <label>Evaluator category<select value={filters.evaluatorLevel} onChange={event => setFilters({ ...filters, evaluatorLevel: event.target.value })}><option value="">All categories</option>{evaluatorLevels.map(level => <option key={level.value} value={level.value}>{level.title}</option>)}</select></label>
       <button className="primary-button" disabled={pending}>Apply / refresh</button>
-      <button type="button" className="secondary-button" disabled={pending || exporting} onClick={() => void exportCsv()}>{exporting ? 'Exporting…' : 'Export CSV'}</button>
+      <button type="button" className="secondary-button" disabled={pending || exporting} onClick={() => void exportCsv()}>{exporting ? 'Exporting…' : 'Export filtered responses'}</button>
       <button type="button" className="secondary-button" disabled={pending || exporting} onClick={() => void exportAllCsv()}>{exporting ? 'Exporting…' : 'Export all questions & responses'}</button>
+      <button type="button" className="secondary-button" disabled={pending || exporting || !results} onClick={exportAnalysisCsv}>Analysis CSV</button>
+      <button type="button" className="secondary-button" disabled={pending || exporting || !results} onClick={exportAnalysisR}>Analysis R code</button>
       <button type="button" className="secondary-button" disabled={pending || exporting} onClick={() => void exportPptx()}>{exporting ? 'Exporting…' : 'Summary PowerPoint'}</button>
       <button type="button" className="text-button" onClick={() => { setFilters(defaults); setApplied(new URLSearchParams(defaults).toString()); setRevision(value => value + 1); }}>Reset filters</button>
     </form>
