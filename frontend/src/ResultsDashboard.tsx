@@ -32,8 +32,8 @@ const percent = (value: number | null) => value === null ? '—' : `${value.toFi
 const role = (value: string) => evaluatorLevels.find(item => item.value === value)?.title || value || 'Not collected';
 const date = (value: string) => new Date(value).toLocaleDateString('en-GB', { timeZone: 'UTC', day: 'numeric', month: 'short', year: 'numeric' });
 const dateWithWeekday = (value: string) => new Date(`${value}T00:00:00Z`).toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
-function Panel({ title, note, children, id }: { title: string; note?: string; children: ReactNode; id: string }) {
-  return <section className="admin-panel" id={id}><div className="panel-heading"><h2>{title}</h2>{note && <p>{note}</p>}</div>{children}</section>;
+function Panel({ title, note, children, id, actions }: { title: string; note?: string; children: ReactNode; id: string; actions?: ReactNode }) {
+  return <section className="admin-panel" id={id}><div className="panel-heading"><div><h2>{title}</h2>{note && <p>{note}</p>}</div>{actions && <div className="panel-heading-actions">{actions}</div>}</div>{children}</section>;
 }
 function Distribution({ stats }: { stats: Stats }) {
   const total = stats.valid + stats.na;
@@ -102,6 +102,28 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
   function exportAllCsv() {
     return downloadCsv(`/api/admin/survey-results-all.csv?surveyId=${encodeURIComponent(surveyId)}`, `survey-results-all-${new Date().toISOString().slice(0, 10)}.csv`);
   }
+  function downloadText(filename: string, content: string, type = 'text/plain;charset=utf-8') {
+    const blob = new Blob([content], { type }); const url = URL.createObjectURL(blob); const link = document.createElement('a');
+    link.href = url; link.download = filename; document.body.appendChild(link); link.click(); link.remove(); URL.revokeObjectURL(url);
+  }
+  function exportRespondentCsv() {
+    if (!results) return;
+    const rows = [['Dimension', 'Group', 'Count', 'Share'], ...[['Evaluator level', results.respondentStatistics.evaluatorLevels], ['Sex', results.respondentStatistics.sex], ['Age group', results.respondentStatistics.ageGroups]].flatMap(([dimension, groups]) => (groups as { label: string; count: number; percent: number | null }[]).map(row => [dimension as string, row.label, String(row.count), row.percent === null ? '' : `${row.percent}%`]))];
+    downloadText(`respondent-statistics-${new Date().toISOString().slice(0, 10)}.csv`, '\uFEFF' + rows.map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\r\n') + '\r\n', 'text/csv;charset=utf-8');
+  }
+  function exportRespondentR() {
+    if (!results) return;
+    const rows = [['dimension', 'group', 'count', 'share'], ...[['Evaluator level', results.respondentStatistics.evaluatorLevels], ['Sex', results.respondentStatistics.sex], ['Age group', results.respondentStatistics.ageGroups]].flatMap(([dimension, groups]) => (groups as { label: string; count: number; percent: number | null }[]).map(row => [dimension as string, row.label, row.count, row.percent ?? NaN]))];
+    const quoteR = (value: unknown) => JSON.stringify(value);
+    const dimensions = rows.slice(1).map(row => quoteR(row[0])).join(', ');
+    const groups = rows.slice(1).map(row => quoteR(row[1])).join(', ');
+    const counts = rows.slice(1).map(row => row[2]).join(', ');
+    const shares = rows.slice(1).map(row => row[3] === '' ? 'NA' : row[3]).join(', ');
+    downloadText(`respondent-statistics-${new Date().toISOString().slice(0, 10)}.R`, `# MoA Leadership Survey respondent statistics\n# Generated from the selected dashboard filters.\n\nif (!requireNamespace("ggplot2", quietly = TRUE)) install.packages("ggplot2")\nlibrary(ggplot2)\n\ndata <- data.frame(\n  dimension = c(${dimensions}),\n  group = c(${groups}),\n  count = c(${counts}),\n  share = c(${shares})\n)\n\nggplot(data, aes(x = reorder(group, count), y = count, fill = dimension)) +\n  geom_col(show.legend = FALSE) +\n  facet_wrap(~ dimension, scales = "free_x") +\n  coord_flip() +\n  labs(title = "Respondent statistics", x = NULL, y = "Submissions") +\n  theme_minimal()\n`, 'text/plain;charset=utf-8');
+  }
+  function exportPptx() {
+    return downloadCsv(`/api/admin/survey-results-summary.pptx?surveyId=${encodeURIComponent(surveyId)}&${applied}`, `survey-analysis-summary-${new Date().toISOString().slice(0, 10)}.pptx`);
+  }
   const results = state.query === applied && state.revision === revision ? state.data : null;
   const items = (results?.items || []).filter(item => (!itemLevel || item.leadershipLevel === itemLevel) && `${item.code} ${item.text}`.toLowerCase().includes(search.toLowerCase())).sort((a, b) => {
     if (itemOrder === 'code') return a.code.localeCompare(b.code);
@@ -121,6 +143,7 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
       <button className="primary-button" disabled={pending}>Apply / refresh</button>
       <button type="button" className="secondary-button" disabled={pending || exporting} onClick={() => void exportCsv()}>{exporting ? 'Exporting…' : 'Export CSV'}</button>
       <button type="button" className="secondary-button" disabled={pending || exporting} onClick={() => void exportAllCsv()}>{exporting ? 'Exporting…' : 'Export all questions & responses'}</button>
+      <button type="button" className="secondary-button" disabled={pending || exporting} onClick={() => void exportPptx()}>{exporting ? 'Exporting…' : 'Summary PowerPoint'}</button>
       <button type="button" className="text-button" onClick={() => { setFilters(defaults); setApplied(new URLSearchParams(defaults).toString()); setRevision(value => value + 1); }}>Reset filters</button>
     </form>
     {error && <div className="error-banner" role="alert">{error} Use Apply / refresh to retry.</div>}
@@ -135,7 +158,7 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
         <article title="N/A selections divided by valid ratings plus N/A selections."><span>N/A selections</span><strong>{percent(results.summary.naRate)}</strong><small>not scored as 6 or zero</small></article>
       </section>
       <div className="analysis-two-column audit-panels">
-      <Panel id="respondent-statistics" title="Respondent statistics" note="Counts and percentages describe submitted assessments after the filters above. Percentages use the filtered submission total; they are not estimates of the whole Ministry workforce.">
+      <Panel id="respondent-statistics" title="Respondent statistics" note="Counts and percentages describe submitted assessments after the filters above. Percentages use the filtered submission total; they are not estimates of the whole Ministry workforce." actions={<><button type="button" className="panel-export-button" onClick={exportRespondentCsv}>CSV</button><button type="button" className="panel-export-button" onClick={exportRespondentR}>R code</button></>}>
         <div className="respondent-stats-grid">
           {[['Evaluator level', results.respondentStatistics.evaluatorLevels], ['Sex', results.respondentStatistics.sex], ['Age group', results.respondentStatistics.ageGroups]].map(([title, rows]) => <article key={title as string}>
             <h3>{title as string}</h3>

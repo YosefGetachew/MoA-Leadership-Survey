@@ -17,6 +17,7 @@ const RESPONDENT_COOKIE = "moa_leadership_survey_respondent";
 const ADMIN_ATTEMPT_COOKIE = "moa_leadership_admin_attempt";
 const { SURVEY_VERSION, PREVIOUS_SURVEY_VERSION, LEGACY_SURVEY_VERSION, LEADERSHIP_POSITIONS, validateSubmission } = require("./survey-validation");
 const { buildSurveyCsv } = require("./survey-csv");
+const { buildSummaryPptx } = require("./survey-pptx");
 const { buildSurveyAnalytics, parseFilters } = require("./survey-analytics");
 const { getAvailability, lockControl, assertOpen, changeWindow } = require("./survey-window");
 const { QUESTION_CATEGORIES, GENERAL_QUESTION_CATEGORY, QUESTION_CODE_PATTERN, getQuestionSections, getOpenEndedQuestions, getGeneralQuestions, questionCodes } = require("./question-bank");
@@ -409,6 +410,25 @@ app.get("/api/admin/survey-results-all.csv", requireResultsReader, async (req, r
       [surveyId],
     );
     res.type("text/csv; charset=utf-8").attachment(`${survey.slug}-all-questions-and-responses-${new Date().toISOString().slice(0, 10)}.csv`).send(buildSurveyCsv(rows, sections, openQuestions, generalQuestions, { analysisReady: true }));
+  } catch (error) { next(error); }
+});
+
+app.get("/api/admin/survey-results-summary.pptx", requireResultsReader, async (req, res, next) => {
+  try {
+    const surveyId = normalizeId(req.query.surveyId);
+    const filters = parseFilters(req.query);
+    const survey = await getSurvey(query, surveyId);
+    const [sections, generalQuestions, openQuestions] = await Promise.all([getQuestionSections(query, { surveyId }), getGeneralQuestions(query, { surveyId }), getOpenEndedQuestions(query, { surveyId })]);
+    const rows = await query(
+      `SELECT r.id,r.leadership_level AS "leadershipLevel",r.evaluator_level AS "evaluatorLevel",
+              r.survey_version AS "surveyVersion",r.sex,r.age,r.work_experience AS "workExperience",
+              r.responses,r.open_ended_responses AS "openEndedResponses",r.completed_at AS "completedAt"
+       FROM leadership_assessment_responses r WHERE r.survey_id=$1 ORDER BY r.completed_at DESC`,
+      [surveyId],
+    );
+    const analysis = buildSurveyAnalytics(rows, filters, sections, openQuestions, generalQuestions);
+    const buffer = await buildSummaryPptx(analysis, survey.nameEn || survey.nameAm || survey.slug, `Version: ${filters.version}${filters.evaluatorLevel ? ` · Category: ${filters.evaluatorLevel}` : ' · All categories'}`);
+    res.type('application/vnd.openxmlformats-officedocument.presentationml.presentation').attachment(`${survey.slug}-analysis-summary-${new Date().toISOString().slice(0, 10)}.pptx`).send(buffer);
   } catch (error) { next(error); }
 });
 
