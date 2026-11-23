@@ -393,6 +393,25 @@ app.get("/api/admin/survey-results.csv", requireResultsReader, async (req, res, 
   } catch (error) { next(error); }
 });
 
+app.get("/api/admin/survey-results-all.csv", requireResultsReader, async (req, res, next) => {
+  try {
+    const surveyId = normalizeId(req.query.surveyId);
+    const survey = await getSurvey(query, surveyId);
+    const [sections, generalQuestions, openQuestions] = await Promise.all([
+      getQuestionSections(query, { includeInactive: true, surveyId }),
+      getGeneralQuestions(query, { includeInactive: true, surveyId }),
+      getOpenEndedQuestions(query, { includeInactive: true, surveyId }),
+    ]);
+    const rows = await query(
+      `SELECT id,survey_version,leadership_level,evaluator_level,
+              sex,age,work_experience,completed_at,responses,open_ended_responses
+       FROM leadership_assessment_responses WHERE survey_id=$1 ORDER BY completed_at DESC`,
+      [surveyId],
+    );
+    res.type("text/csv; charset=utf-8").attachment(`${survey.slug}-all-questions-and-responses-${new Date().toISOString().slice(0, 10)}.csv`).send(buildSurveyCsv(rows, sections, openQuestions, generalQuestions));
+  } catch (error) { next(error); }
+});
+
 app.get("/api/admin/questions", requireSurveyManager, async (req, res, next) => {
   try {
     const surveyId = normalizeId(req.query.surveyId);

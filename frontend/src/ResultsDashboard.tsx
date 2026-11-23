@@ -76,10 +76,10 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
     return () => controller.abort();
   }, [applied, revision, surveyId]);
   function apply(event: FormEvent) { event.preventDefault(); setApplied(new URLSearchParams(filters).toString()); setRevision(value => value + 1); }
-  async function exportCsv() {
+  async function downloadCsv(path: string, fallback: string) {
     setExporting(true); setError('');
     try {
-      const response = await fetch(`/api/admin/survey-results.csv?surveyId=${encodeURIComponent(surveyId)}&${applied}`, { credentials: 'include' });
+      const response = await fetch(path, { credentials: 'include' });
       if (!response.ok) {
         let message = 'Unable to export results.';
         try { const body = await response.json(); message = body.error || message; } catch { /* response was not JSON */ }
@@ -87,7 +87,7 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
       }
       const blob = await response.blob();
       const contentDisposition = response.headers.get('Content-Disposition') || '';
-      const filename = contentDisposition.match(/filename="?([^";]+)"?/i)?.[1] || `survey-results-${new Date().toISOString().slice(0, 10)}.csv`;
+      const filename = contentDisposition.match(/filename="?([^";]+)"?/i)?.[1] || fallback;
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url; link.download = filename; document.body.appendChild(link); link.click(); link.remove();
@@ -95,6 +95,12 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
     } catch (exportError) {
       setError(exportError instanceof Error ? exportError.message : 'Unable to export results.');
     } finally { setExporting(false); }
+  }
+  function exportCsv() {
+    return downloadCsv(`/api/admin/survey-results.csv?surveyId=${encodeURIComponent(surveyId)}&${applied}`, `survey-results-${new Date().toISOString().slice(0, 10)}.csv`);
+  }
+  function exportAllCsv() {
+    return downloadCsv(`/api/admin/survey-results-all.csv?surveyId=${encodeURIComponent(surveyId)}`, `survey-results-all-${new Date().toISOString().slice(0, 10)}.csv`);
   }
   const results = state.query === applied && state.revision === revision ? state.data : null;
   const items = (results?.items || []).filter(item => (!itemLevel || item.leadershipLevel === itemLevel) && `${item.code} ${item.text}`.toLowerCase().includes(search.toLowerCase())).sort((a, b) => {
@@ -114,6 +120,7 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
       <label>Evaluator category<select value={filters.evaluatorLevel} onChange={event => setFilters({ ...filters, evaluatorLevel: event.target.value })}><option value="">All categories</option>{evaluatorLevels.map(level => <option key={level.value} value={level.value}>{level.title}</option>)}</select></label>
       <button className="primary-button" disabled={pending}>Apply / refresh</button>
       <button type="button" className="secondary-button" disabled={pending || exporting} onClick={() => void exportCsv()}>{exporting ? 'Exporting…' : 'Export CSV'}</button>
+      <button type="button" className="secondary-button" disabled={pending || exporting} onClick={() => void exportAllCsv()}>{exporting ? 'Exporting…' : 'Export all questions & responses'}</button>
       <button type="button" className="text-button" onClick={() => { setFilters(defaults); setApplied(new URLSearchParams(defaults).toString()); setRevision(value => value + 1); }}>Reset filters</button>
     </form>
     {error && <div className="error-banner" role="alert">{error} Use Apply / refresh to retry.</div>}
