@@ -124,6 +124,12 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
   function exportPptx() {
     return downloadCsv(`/api/admin/survey-results-summary.pptx?surveyId=${encodeURIComponent(surveyId)}&${applied}`, `survey-analysis-summary-${new Date().toISOString().slice(0, 10)}.pptx`);
   }
+  function panelExport(slug: string, headers: string[], data: (string | number | null)[][], chartCode: string) {
+    const csvName = `${slug}-${new Date().toISOString().slice(0, 10)}.csv`;
+    const rName = `${slug}-${new Date().toISOString().slice(0, 10)}.R`;
+    const csv = '\uFEFF' + [headers, ...data].map(row => row.map(value => `"${String(value ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n') + '\r\n';
+    return <><button type="button" className="panel-export-button" onClick={() => downloadText(csvName, csv, 'text/csv;charset=utf-8')}>CSV</button><button type="button" className="panel-export-button" onClick={() => downloadText(rName, `library(ggplot2)\ndata <- read.csv("${csvName}", stringsAsFactors = FALSE, check.names = FALSE)\n${chartCode}\n`, 'text/plain;charset=utf-8')}>R code</button></>;
+  }
   function analysisRows() {
     if (!results) return [] as string[][];
     const rows: string[][] = [['Section', 'Metric', 'Group', 'Value', 'Notes']];
@@ -184,6 +190,7 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
         <article title="Ratings of 4 or 5 divided by all ratings of 1–5."><span>Favorable ratings</span><strong>{percent(results.summary.favorableRate)}</strong><small>Agree + Strongly agree · excludes N/A</small></article>
         <article title="N/A selections divided by valid ratings plus N/A selections."><span>N/A selections</span><strong>{percent(results.summary.naRate)}</strong><small>not scored as 6 or zero</small></article>
       </section>
+      <div className="analysis-card-actions">{panelExport('headline-metrics', ['Metric', 'Value'], [['Submitted assessments', results.summary.totalResponses], ['Average leadership rating', results.summary.averageScore], ['Favorable ratings (%)', results.summary.favorableRate], ['N/A selections (%)', results.summary.naRate], ['Valid ratings', results.summary.validRatings]], 'print(data)')}</div>
       <div className="analysis-two-column audit-panels">
       <Panel id="respondent-statistics" title="Respondent statistics" note="Counts and percentages describe submitted assessments after the filters above. Percentages use the filtered submission total; they are not estimates of the whole Ministry workforce." actions={<><button type="button" className="panel-export-button" onClick={exportRespondentCsv}>CSV</button><button type="button" className="panel-export-button" onClick={exportRespondentR}>R code</button></>}>
         <div className="respondent-stats-grid">
@@ -202,7 +209,7 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
         </div>
         <p className="analysis-footnote">“Not collected” includes earlier or invalid demographic records. Counts refer to submissions, not independently verified people.</p>
       </Panel>
-      <Panel id="daily-submission-audit" title="Daily submission audit" note="Shows how many assessments were submitted on each UTC calendar day. Counts are submissions, not independently verified people; days with no submissions are not listed.">
+      <Panel id="daily-submission-audit" title="Daily submission audit" note="Shows how many assessments were submitted on each UTC calendar day. Counts are submissions, not independently verified people; days with no submissions are not listed." actions={panelExport('daily-submission-audit', ['UTC date', 'Submissions'], results.daily.map(row => [row.date, row.submissions]), 'ggplot(data, aes(x = UTC.date, y = Submissions, group = 1)) + geom_col() + theme_minimal()')}>
         {results.daily.length ? <>
           <div className="audit-summary">
             <div><span>Active submission days</span><strong>{results.daily.length}</strong></div>
@@ -216,7 +223,7 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
       </Panel>
       </div>
       {results.summary.totalResponses === 0 && <div className="empty-state">No submissions match these filters. Change the evaluator category or questionnaire version.</div>}
-      <Panel id="leadership-comparison" title="Leadership-level comparison" note="The respondent mean gives each qualifying submission equal weight. A section needs at least half its questions rated 1–5; N/A is excluded. Different sections measure different statements.">
+      <Panel id="leadership-comparison" title="Leadership-level comparison" note="The respondent mean gives each qualifying submission equal weight. A section needs at least half its questions rated 1–5; N/A is excluded. Different sections measure different statements." actions={panelExport('leadership-level-comparison', ['Leadership level', 'Mean', 'Scored submissions', 'Submitted assessments'], results.levels.map(level => [level.title, level.respondentMean, level.scoredSubmissions, level.submissions]), 'ggplot(data, aes(x = reorder(Leadership.level, Mean), y = Mean)) + geom_col() + coord_flip() + theme_minimal()')}>
         <div className="analysis-level-grid">{results.levels.map(level => <article key={level.level}>
           <h3>{level.title}</h3><strong className="level-score">{number(level.respondentMean)} <small>/ 5</small></strong><p>{level.scoredSubmissions} scored / {level.submissions} submitted</p>
           {level.scoredSubmissions < 5 && <p className="sample-warning">Small sample — interpret cautiously</p>}
@@ -225,15 +232,15 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
         <div className="distribution-legend">{['1 Strongly disagree', '2 Disagree', '3 Neither', '4 Agree', '5 Strongly agree', 'N/A'].map((label, index) => <span key={label}><i className={`rating-${index + 1}`} />{label}</span>)}</div>
       </Panel>
       <div className="analysis-two-column">
-        <Panel id="lower-scoring-items" title="Lower-scoring statements" note="Up to five lowest means with at least five valid ratings each. Relative ranking is not a pass/fail classification; ties are ordered by code."><Ranking items={results.priorities} empty="At least five valid ratings per statement are needed for ranking." /></Panel>
-        <Panel id="higher-scoring-items" title="Higher-scoring statements" note="Up to five highest means under the same filters and sample rule. Small differences are not evidence of a statistically significant gap."><Ranking items={results.strengths} empty="Higher-scoring statements will appear as sufficient ratings are collected." /></Panel>
+        <Panel id="lower-scoring-items" title="Lower-scoring statements" note="Up to five lowest means with at least five valid ratings each. Relative ranking is not a pass/fail classification; ties are ordered by code." actions={panelExport('lower-scoring-statements', ['Code', 'Question', 'Mean', 'Valid ratings'], results.priorities.map(item => [item.code, item.text, item.average, item.valid]), 'ggplot(data, aes(x = reorder(Code, Mean), y = Mean)) + geom_col() + coord_flip() + theme_minimal()')}><Ranking items={results.priorities} empty="At least five valid ratings per statement are needed for ranking." /></Panel>
+        <Panel id="higher-scoring-items" title="Higher-scoring statements" note="Up to five highest means under the same filters and sample rule. Small differences are not evidence of a statistically significant gap." actions={panelExport('higher-scoring-statements', ['Code', 'Question', 'Mean', 'Valid ratings'], results.strengths.map(item => [item.code, item.text, item.average, item.valid]), 'ggplot(data, aes(x = reorder(Code, Mean), y = Mean)) + geom_col() + coord_flip() + theme_minimal()')}><Ranking items={results.strengths} empty="Higher-scoring statements will appear as sufficient ratings are collected." /></Panel>
       </div>
-      <Panel id="evaluator-comparisons" title="Scores by evaluator group" note="Means are withheld for fewer than five scored submissions (—). Group differences are descriptive associations, not determinant factors or causal effects.">
+      <Panel id="evaluator-comparisons" title="Scores by evaluator group" note="Means are withheld for fewer than five scored submissions (—). Group differences are descriptive associations, not determinant factors or causal effects." actions={panelExport('scores-by-evaluator-group', ['Evaluator group', 'Submissions', ...results.levels.map(level => level.title), 'Equal-level composite'], groups.map(group => [role(group.label), group.submissions, ...group.levels.map(level => level.average), group.average]), 'print(data)')}>
         <div className="analysis-local-controls"><label>Compare by<select value={dimension} onChange={event => setDimension(event.target.value)}>{results.demographics.map(group => <option key={group.dimension}>{group.dimension}</option>)}</select></label></div>
         <div className="table-wrap"><table><thead><tr><th>Evaluator group</th><th className="numeric">Submissions</th>{results.levels.map(level => <th key={level.level} className="numeric">{level.title}</th>)}<th className="numeric">Equal-level composite</th></tr></thead><tbody>{groups.map(group => <tr key={group.label}><td>{role(group.label)}</td><td className="numeric">{group.submissions}</td>{group.levels.map(level => <td key={level.level} className="numeric">{number(level.average)}<small className="table-subtext">n = {level.n}</small></td>)}<td className="numeric">{number(group.average)}<small className="table-subtext">n = {group.scoredSubmissions}</small></td></tr>)}</tbody></table></div>
         <p className="analysis-footnote">Composite = average of the three section means within each submission, then average across submissions. All three sections must qualify. No composite is calculated for earlier single-level submissions. Counts refer to submissions, not independent people.</p>
       </Panel>
-      <Panel id="score-correlations" title="Correlation between leadership scores" note="Pearson r compares paired section means from the same submissions. At least 10 pairs and variation in both scores are required.">
+      <Panel id="score-correlations" title="Correlation between leadership scores" note="Pearson r compares paired section means from the same submissions. At least 10 pairs and variation in both scores are required." actions={panelExport('leadership-correlations', ['First section', 'Second section', 'Pairs', 'Correlation r'], results.correlations.map(pair => [pair.first, pair.second, pair.n, pair.r]), 'print(data)')}>
         <div className="table-wrap"><table><thead><tr><th>Paired levels</th><th className="numeric">Pairs</th><th className="numeric">r</th></tr></thead><tbody>{results.correlations.map(pair => <tr key={pair.first + pair.second}><td>{pair.first} / {pair.second}{pair.reason && <small className="table-subtext">{pair.reason}</small>}</td><td className="numeric">{pair.n}</td><td className="numeric">{number(pair.r)}</td></tr>)}</tbody></table></div>
         <p className="analysis-footnote">r ranges from −1 to +1. Positive values mean scores tend to move together; negative values mean opposite movement. Correlation is not causation, reliability, or proof of reform impact. No significance tests are reported; repeated submissions may not be independent.</p>
       </Panel>
