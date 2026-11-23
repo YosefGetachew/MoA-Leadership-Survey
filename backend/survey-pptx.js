@@ -39,6 +39,22 @@ async function buildSummaryPptx(analysis, surveyName, filterDescription) {
     ['Complete submissions', pct(analysis.summary.completeRate)],
   ], 1.25, { fontSize: 14, h: 4.7, table: { colW: [5.8, 5.8], bold: false } });
 
+  slide = pptx.addSlide(); addTitle(slide, 'How to read the results', 'Definitions used throughout this report.');
+  addTable(slide, [
+    ['Term', 'Meaning'],
+    ['Favorable ratings (4–5)', 'The percentage of valid 1–5 ratings that are Agree (4) or Strongly agree (5). N/A responses are excluded.'],
+    ['Unfavorable ratings (1–2)', 'The percentage of valid ratings that are Strongly disagree (1) or Disagree (2).'],
+    ['N/A selections', 'Responses marked Not applicable. They are reported separately and are not included in the average rating.'],
+    ['Average leadership rating', 'The arithmetic mean of valid ratings from 1 to 5. It is descriptive and not a pass/fail score.'],
+    ['Respondent mean', 'Each qualifying submission contributes one section mean, so submissions receive equal weight in leadership comparisons.'],
+    ['Correlation (r)', 'The association between two leadership-section scores, from −1 to +1. Correlation does not prove causation.'],
+  ], 1.05, { fontSize: 10, h: 5.9, table: { colW: [3.1, 9.0] } });
+
+  if (analysis.levels.length) {
+    slide = pptx.addSlide(); addTitle(slide, 'Leadership ratings by section', 'Visual comparison of respondent means; sections use different statements.');
+    slide.addChart(pptx.ChartType.bar, [{ name: 'Mean rating', labels: analysis.levels.map(level => level.title), values: analysis.levels.map(level => level.respondentMean || 0) }], { x: 0.65, y: 1.2, w: 11.9, h: 5.6, catAxisLabelFontSize: 11, valAxisMinVal: 0, valAxisMaxVal: 5, valAxisMajorUnit: 1, showLegend: false, showTitle: false, showValue: true, chartColors: [green], showCatName: false, showValAxisTitle: true, valAxisTitle: 'Mean rating / 5' });
+  }
+
   slide = pptx.addSlide(); addTitle(slide, 'Respondent statistics', 'Counts and shares use the selected analysis filters.');
   const respondentRows = [['Dimension', 'Group', 'Count', 'Share']];
   [['Evaluator level', analysis.respondentStatistics.evaluatorLevels], ['Sex', analysis.respondentStatistics.sex], ['Age group', analysis.respondentStatistics.ageGroups]].forEach(([dimension, groups]) => groups.forEach(group => respondentRows.push([dimension, group.label, String(group.count), pct(group.percent)])));
@@ -46,9 +62,16 @@ async function buildSummaryPptx(analysis, surveyName, filterDescription) {
 
   slide = pptx.addSlide(); addTitle(slide, 'Daily submission audit', 'Submissions by UTC calendar day.');
   addTable(slide, [['Date', 'Submissions'], ...analysis.daily.map(row => [row.date, String(row.submissions)])], 1.1, { fontSize: 11, h: 5.9, table: { colW: [5.8, 5.8] } });
+  if (analysis.daily.length) {
+    slide = pptx.addSlide(); addTitle(slide, 'Submission trend', 'Number of submitted assessments by UTC day.');
+    slide.addChart(pptx.ChartType.line, [{ name: 'Submissions', labels: analysis.daily.map(row => row.date), values: analysis.daily.map(row => row.submissions) }], { x: 0.6, y: 1.15, w: 12, h: 5.7, catAxisLabelFontSize: 9, valAxisMinVal: 0, showLegend: false, showTitle: false, showValue: true, chartColors: ['2C9A68'], lineSize: 2, lineDataSymbol: 'circle', lineDataSymbolSize: 7 });
+  }
 
   slide = pptx.addSlide(); addTitle(slide, 'Leadership-level comparison', 'Respondent means by leadership section.');
   addTable(slide, [['Leadership level', 'Mean / 5', 'Scored', 'Submitted'], ...analysis.levels.map(level => [level.title, fmt(level.respondentMean), String(level.scoredSubmissions), String(level.submissions)])], 1.1, { fontSize: 12, h: 5.8 });
+
+  slide = pptx.addSlide(); addTitle(slide, 'Correlation analysis', 'Pearson correlation between paired leadership-section means. Values closer to +1 move together; values closer to −1 move in opposite directions.');
+  addTable(slide, [['Paired sections', 'Pairs', 'Correlation (r)', 'Interpretation'], ...analysis.correlations.map(pair => [ `${pair.first} / ${pair.second}`, String(pair.n), fmt(pair.r), pair.reason || (pair.r === null ? 'Not estimable' : Math.abs(pair.r) >= 0.7 ? 'Strong association' : Math.abs(pair.r) >= 0.4 ? 'Moderate association' : 'Weak association')])], 1.15, { fontSize: 10, h: 5.7 });
 
   slide = pptx.addSlide(); addTitle(slide, 'Question-level priorities and strengths', 'Statements with sufficient valid ratings for ranking.');
   addTable(slide, [['Type', 'Question', 'Mean', 'Valid n'], ...[...analysis.priorities.map(item => ['Lower scoring', item.text, fmt(item.average), String(item.valid)]), ...analysis.strengths.map(item => ['Higher scoring', item.text, fmt(item.average), String(item.valid)])]], 1.05, { fontSize: 9, h: 6 });
