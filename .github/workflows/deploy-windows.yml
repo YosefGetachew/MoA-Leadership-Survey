@@ -67,13 +67,32 @@ jobs:
           $pm2 = 'C:\Users\Administrator\AppData\Roaming\npm\pm2.cmd'
           if (-not (Test-Path -LiteralPath $pm2)) { throw "PM2 was not found at $pm2. Run 'where.exe pm2' on the server and update the workflow path." }
           & $pm2 restart moa-leadership-survey-backend --update-env
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host 'Existing PM2 process was not restarted; starting it from server.js.'
+            & $pm2 start '.\server.js' --name moa-leadership-survey-backend --update-env
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'PM2 could not restart or start moa-leadership-survey-backend.' }
           & $pm2 save
+          if ($LASTEXITCODE -ne 0) { throw 'PM2 could not save the process list.' }
 
       - name: Verify API health
         shell: powershell
         run: |
-          $health = Invoke-RestMethod -Uri 'http://127.0.0.1:5001/api/health'
-          if ($health.status -ne 'ok' -or $health.database -ne 'connected') {
-            throw "Health check failed: $($health | ConvertTo-Json -Compress)"
+          $healthy = $false
+          $lastError = ''
+          for ($attempt = 1; $attempt -le 24; $attempt++) {
+            try {
+              $health = Invoke-RestMethod -Uri 'http://127.0.0.1:5001/api/health' -TimeoutSec 5
+              if ($health.status -eq 'ok' -and $health.database -eq 'connected') {
+                $healthy = $true
+                Write-Host "API health check passed on attempt $attempt."
+                break
+              }
+              $lastError = "Unexpected health response: $($health | ConvertTo-Json -Compress)"
+            } catch {
+              $lastError = $_.Exception.Message
+            }
+            Write-Host "Health check attempt $attempt failed; retrying in 5 seconds. $lastError"
+            Start-Sleep -Seconds 5
           }
-          Write-Host "API health check passed."
+          if (-not $healthy) { throw "Health check failed after 24 attempts. Last error: $lastError" }

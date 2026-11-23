@@ -376,6 +376,7 @@ app.get("/api/admin/survey-results", requireResultsReader, async (req, res, next
 app.get("/api/admin/survey-results.csv", requireResultsReader, async (req, res, next) => {
   try {
     const surveyId = normalizeId(req.query.surveyId);
+    const filters = parseFilters(req.query);
     const survey = await getSurvey(query, surveyId);
     const [sections, generalQuestions, openQuestions] = await Promise.all([getQuestionSections(query, { surveyId }), getGeneralQuestions(query, { surveyId }), getOpenEndedQuestions(query, { surveyId })]);
     const rows = await query(
@@ -384,7 +385,11 @@ app.get("/api/admin/survey-results.csv", requireResultsReader, async (req, res, 
        FROM leadership_assessment_responses WHERE survey_id=$1 ORDER BY completed_at DESC`,
       [surveyId],
     );
-    res.type("text/csv; charset=utf-8").attachment(`${survey.slug}-${new Date().toISOString().slice(0, 10)}.csv`).send(buildSurveyCsv(rows, sections, openQuestions, generalQuestions));
+    const filteredRows = rows.filter(row => row.survey_version === filters.version
+      && (!filters.evaluatorLevel || row.evaluator_level === filters.evaluatorLevel)
+      && (!filters.from || new Date(row.completed_at).toISOString().slice(0, 10) >= filters.from)
+      && (!filters.to || new Date(row.completed_at).toISOString().slice(0, 10) <= filters.to));
+    res.type("text/csv; charset=utf-8").attachment(`${survey.slug}-${filters.version}-${new Date().toISOString().slice(0, 10)}.csv`).send(buildSurveyCsv(filteredRows, sections, openQuestions, generalQuestions));
   } catch (error) { next(error); }
 });
 

@@ -61,6 +61,7 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
   const [itemLevel, setItemLevel] = useState('');
   const [itemOrder, setItemOrder] = useState('lowest');
   const [search, setSearch] = useState('');
+  const [exporting, setExporting] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     setPending(true); setError('');
@@ -75,6 +76,26 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
     return () => controller.abort();
   }, [applied, revision, surveyId]);
   function apply(event: FormEvent) { event.preventDefault(); setApplied(new URLSearchParams(filters).toString()); setRevision(value => value + 1); }
+  async function exportCsv() {
+    setExporting(true); setError('');
+    try {
+      const response = await fetch(`/api/admin/survey-results.csv?surveyId=${encodeURIComponent(surveyId)}&${applied}`, { credentials: 'include' });
+      if (!response.ok) {
+        let message = 'Unable to export results.';
+        try { const body = await response.json(); message = body.error || message; } catch { /* response was not JSON */ }
+        throw new Error(message);
+      }
+      const blob = await response.blob();
+      const contentDisposition = response.headers.get('Content-Disposition') || '';
+      const filename = contentDisposition.match(/filename="?([^";]+)"?/i)?.[1] || `survey-results-${new Date().toISOString().slice(0, 10)}.csv`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url; link.download = filename; document.body.appendChild(link); link.click(); link.remove();
+      URL.revokeObjectURL(url);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : 'Unable to export results.');
+    } finally { setExporting(false); }
+  }
   const results = state.query === applied && state.revision === revision ? state.data : null;
   const items = (results?.items || []).filter(item => (!itemLevel || item.leadershipLevel === itemLevel) && `${item.code} ${item.text}`.toLowerCase().includes(search.toLowerCase())).sort((a, b) => {
     if (itemOrder === 'code') return a.code.localeCompare(b.code);
@@ -92,13 +113,14 @@ export default function ResultsDashboard({ surveyId, surveyName }: { surveyId: s
       <label>Questionnaire version<select value={filters.version} onChange={event => setFilters({ ...filters, version: event.target.value })}>{versions.map(version => <option key={version.value} value={version.value}>{version.label}</option>)}</select></label>
       <label>Evaluator category<select value={filters.evaluatorLevel} onChange={event => setFilters({ ...filters, evaluatorLevel: event.target.value })}><option value="">All categories</option>{evaluatorLevels.map(level => <option key={level.value} value={level.value}>{level.title}</option>)}</select></label>
       <button className="primary-button" disabled={pending}>Apply / refresh</button>
+      <button type="button" className="secondary-button" disabled={pending || exporting} onClick={() => void exportCsv()}>{exporting ? 'Exporting…' : 'Export CSV'}</button>
       <button type="button" className="text-button" onClick={() => { setFilters(defaults); setApplied(new URLSearchParams(defaults).toString()); setRevision(value => value + 1); }}>Reset filters</button>
     </form>
     {error && <div className="error-banner" role="alert">{error} Use Apply / refresh to retry.</div>}
     {pending && <p role="status">Loading analysis…</p>}
     {results && !pending && <>
       <p className="analysis-scope">Showing {versions.find(version => version.value === results.version)?.label}. Category: {role(appliedFilters.get('evaluatorLevel') || 'All categories')}. Updated {new Date(results.generatedAt).toLocaleString()}.</p>
-      <div className="analysis-notice">Repeat submissions are blocked for the same browser within a survey period, but anonymous browser checks cannot verify unique people across devices. These are descriptive results from participating evaluators, not estimates of the whole ministry. CSV exports all retained versions and is not restricted by these filters.</div>
+      <div className="analysis-notice">Repeat submissions are blocked for the same browser within a survey period, but anonymous browser checks cannot verify unique people across devices. These are descriptive results from participating evaluators, not estimates of the whole ministry. Export CSV downloads the records matching the selected version and category.</div>
       <section className="metric-grid">
         <article><span>Submitted assessments</span><strong>{results.summary.totalResponses}</strong><small>selected version and filters</small></article>
         <article title="Sum of valid leadership ratings divided by their count. Each rating has equal weight; N/A is excluded."><span>Average leadership rating</span><strong>{number(results.summary.averageScore)}</strong><small>/ 5 · {results.summary.validRatings} valid ratings</small></article>
