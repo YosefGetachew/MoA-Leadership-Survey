@@ -17,11 +17,11 @@ function buildSurveyCsv(rows, sections = [], openQuestions = [], generalQuestion
   const analysisReady = options.analysisReady === true;
   const coverageLabels = Object.fromEntries(sections.map(section => [section.level, section.title]));
   const questions = sections.flatMap(section => section.questions.map((question, index) => ({
-    code: question.code, header: analysisReady ? (question.textEn || question.text || question.code) : `${section.title} ${index + 1} (${question.code})`,
+    code: question.code, header: analysisReady ? `${question.textEn || question.text || question.code} (${question.code})` : `${section.title} ${index + 1} (${question.code})`,
   })));
-  const general = generalQuestions.map((question, index) => ({ code: question.code, header: analysisReady ? (question.text || question.textEn || question.code) : `General ${index + 1} (${question.code})` }));
+  const general = generalQuestions.map((question, index) => ({ code: question.code, header: analysisReady ? `${question.text || question.textEn || question.code} (${question.code})` : `General ${index + 1} (${question.code})` }));
   const metadataHeaders = ['ID', 'Survey version', 'Assessed levels', 'Evaluator leadership level', 'Sex', 'Age (years)', 'Work experience (years)'];
-  const headers = [...metadataHeaders, ...(analysisReady ? [] : ['Submitted at (UTC)']), ...general.map(question => question.header), ...questions.map(question => question.header), ...openQuestions.map(question => analysisReady ? (question.text || question.code) : `${question.code} - ${question.text}`)];
+  const headers = [...metadataHeaders, ...(analysisReady ? [] : ['Submitted at (UTC)']), ...general.map(question => question.header), ...questions.map(question => question.header), ...openQuestions.map(question => analysisReady ? `${question.text || question.code} (${question.code})` : `${question.code} - ${question.text}`)];
   const records = rows.map(row => [
     row.id, row.survey_version,
     row.leadership_level === 'all_levels' ? 'Senior, Middle and Lower Leadership' : coverageLabels[row.leadership_level] || '',
